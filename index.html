@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Find the Mate in N</title>
+<meta name="description" content="Positions where the side to move has a forced mate: find the move, one level deeper each time you do.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Balthazar&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="find-mate.css">
+<link rel="stylesheet" href="pieces.css">
+</head>
+<body>
+
+<div class="bar"><div class="wide bar-inner">
+<span class="bar-name">Find the Mate in N</span>
+<span class="bar-here" id="bar-here"></span>
+</div></div>
+
+<section class="wide head">
+<h1>Find the Mate in N</h1>
+<p class="lede">Every position here has a forced mate for the side to move. Play the move that starts
+the mate. Get it right and the next position is a mate one move longer; get it wrong and you start
+again at mate in one.</p>
+</section>
+
+<main class="wide"><div class="fm">
+<div class="fm-left">
+<div class="fm-ask">
+<span class="fm-level" id="fm-level">Loading…</span>
+<span class="fm-turn" id="fm-turn" hidden></span>
+<span class="fm-score" id="fm-score"></span>
+</div>
+<div class="board" id="fm-board"></div>
+<div class="fm-actions">
+<button type="button" class="primary" id="fm-next" disabled>Next position</button>
+<button type="button" id="fm-give">Give up</button>
+</div>
+</div>
+<div class="fm-right">
+<div class="fm-verdict" id="fm-verdict">Pick up a piece and play the move you think forces mate.</div>
+<div class="fm-bars empty" id="fm-bars"><div class="fm-hint">Every legal move, scored, once you have answered.</div></div>
+<p class="fm-legend">One bar per legal move, best first. A bar split black over white is the balance in
+centipawns; a stack of even bands is a mate, one band per move, in the colour of whoever gives it. Your
+move is outlined in pink.</p>
+</div>
+</div></main>
+
+<footer class="wide">Positions scored by Stockfish.</footer>
+<script src="find-mate.js"></script>
+</body>
+</html>

@@ -1,0 +1,365 @@
+/* Find the mate in n: the page, the board and the bars, in one stylesheet. The piece images are
+   in pieces.css, which the build writes. */
+
+:root {
+  color-scheme: light;
+  --ground:      #eaf0f1;
+  --surface:     #ffffff;
+  --surface-2:   #f3f8f8;
+  --line:        #cedcdf;
+  --line-strong: #a6c0c5;
+  --ink:         #06303d;
+  --ink-soft:    #476069;
+  --ink-faint:   #7a929a;
+  --amber:       #a55f0d;
+  --amber-tint:  #f7e9d3;
+  --wood:        #8a5f3f;
+  --focus:       #0d6b86;
+  /* Right and wrong need two colours of their own, holding on both grounds. */
+  --good:        #2f8f5b;
+  --bad:         #b3453a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground:      #052733;
+    --surface:     #073744;
+    --surface-2:   #0a4152;
+    --line:        #104c5f;
+    --line-strong: #1d6b81;
+    --ink:         #ebe2d1;
+    --ink-soft:    #9cb7bf;
+    --ink-faint:   #6b8d97;
+    --amber:       #e8a33d;
+    --amber-tint:  #123f4e;
+    --wood:        #b48862;
+    --focus:       #5cc2e0;
+    --good:        #63c893;
+    --bad:         #e08074;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground:      #052733;
+  --surface:     #073744;
+  --surface-2:   #0a4152;
+  --line:        #104c5f;
+  --line-strong: #1d6b81;
+  --ink:         #ebe2d1;
+  --ink-soft:    #9cb7bf;
+  --ink-faint:   #6b8d97;
+  --amber:       #e8a33d;
+  --amber-tint:  #123f4e;
+  --wood:        #b48862;
+  --focus:       #5cc2e0;
+  --good:        #63c893;
+  --bad:         #e08074;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wide { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+
+/* ---- the bar that stays ---- */
+
+.bar {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.bar-inner {
+  display: flex; align-items: baseline; gap: 16px;
+  min-height: 52px; padding-top: 8px; padding-bottom: 8px;
+}
+.bar-name {
+  font-family: Balthazar, Georgia, "Times New Roman", serif;
+  font-size: 20px; letter-spacing: .01em;
+}
+.bar-here {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px; color: var(--amber); margin-inline-start: auto;
+  overflow-wrap: anywhere;
+}
+.bar-here:empty { display: none; }
+
+.head { padding-top: 34px; }
+h1 {
+  font-family: Balthazar, Georgia, "Times New Roman", serif;
+  font-weight: 400; font-size: 30px; margin: 0 0 8px;
+}
+.lede { font-size: 17px; color: var(--ink-soft); margin: 0 0 22px; max-width: 66ch; }
+
+footer {
+  border-top: 1px solid var(--line); padding: 28px 24px 64px;
+  font-size: 14px; color: var(--ink-faint);
+}
+
+/* ---- the activity ---- */
+
+/* The board keeps its own colours whatever the theme, so a position always looks the same. */
+.fm {
+  --sq: 58px;
+  --bar: 150px;
+  display: grid;
+  grid-template-columns: calc(8 * var(--sq) + var(--sq) / 2) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+  margin: 0 auto 40px;
+}
+
+.fm-left { display: flex; flex-direction: column; gap: 12px; }
+
+.fm-ask {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 40px;
+}
+.fm-level {
+  font-family: Balthazar, Georgia, "Times New Roman", serif;
+  font-size: 28px;
+  line-height: 1;
+}
+/* The distance is a number to read, and Balthazar's 1 is a roman numeral. */
+.fm-level .fm-n {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 24px;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+.fm-turn {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: var(--ink-soft);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.fm-turn.black { background: #16202a; color: #e7edf2; border-color: #16202a; }
+.fm-turn.white { background: #f6f1e6; color: #33261a; border-color: #cdbfa6; }
+.fm-score { margin-inline-start: auto; font-family: "IBM Plex Mono", ui-monospace, monospace;
+            font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.fm-score b { color: var(--amber); font-weight: 500; }
+
+/* The verdict holds its height while the position waits, so nothing below it moves. */
+.fm-verdict {
+  min-height: 62px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+.fm-verdict b { color: var(--ink); font-weight: 600; }
+.fm-verdict .san { font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace; }
+.fm-verdict.right { border-color: var(--good); background: var(--amber-tint); }
+.fm-verdict.wrong { border-color: var(--bad); }
+.fm-verdict .good { color: var(--good); }
+.fm-verdict .bad { color: var(--bad); }
+
+.fm-actions { display: flex; gap: 8px; align-items: center; }
+.fm-actions button {
+  font: 500 14px/1 "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.fm-actions button:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+.fm-actions button:disabled { opacity: .4; cursor: default; }
+.fm-actions .primary { border-color: var(--amber); color: var(--amber); }
+
+.fm-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.fm-legend { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; margin: 0; }
+
+/* ---- the board ---- */
+
+.board {
+  position: relative;
+  display: grid;
+  grid-template-columns: calc(var(--sq) / 2) repeat(8, var(--sq));
+  grid-template-rows: repeat(8, var(--sq)) calc(var(--sq) / 2);
+  background: #f0d9b5;
+  border-radius: 3px;
+  overflow: hidden;
+  user-select: none;
+}
+.sq {
+  position: relative;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.sq.lt { background-color: #f0d9b5; }
+.sq.dk { background-color: #b58863; }
+
+/* Coordinates sit in the half-size track, in the board's own dark brown. */
+.co {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0d9b5;
+  color: #8a5f3f;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+/* The move played. */
+.sq.from::after,
+.sq.to::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(245, 124, 0, .38);
+  pointer-events: none;
+}
+
+/* A piece that can be moved, and where it may go. */
+.sq.pick { cursor: pointer; }
+.sq.pick:hover { box-shadow: inset 0 0 0 3px rgba(232, 163, 61, .9); }
+.sq.origin { box-shadow: inset 0 0 0 3px #c6168d; }
+.sq.dest { cursor: pointer; }
+.sq.dest::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30%;
+  height: 30%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(198, 22, 141, .55);
+  pointer-events: none;
+}
+/* A destination holding a piece reads as a ring, so the piece stays visible. */
+.sq.dest.occupied::before {
+  width: 92%;
+  height: 92%;
+  background: transparent;
+  box-shadow: inset 0 0 0 5px rgba(198, 22, 141, .55);
+}
+
+/* Promotion: the four pieces, drawn from the square the pawn is going to. */
+.promo {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.promo button {
+  width: var(--sq);
+  height: var(--sq);
+  border: 0;
+  padding: 0;
+  background-color: #f0d9b5;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+.promo button:hover { background-color: #e8a33d; }
+
+/* ---- the bars, once the answer is in ---- */
+
+.fm-bars {
+  background: var(--wood);
+  border-radius: 4px;
+  padding: 4px;
+  min-height: calc(var(--bar) + 8px);
+  display: flex;
+}
+/* Before the answer there is nothing to draw, and bare wood that size reads as a missing
+   picture, so the empty box is plain. */
+.fm-bars.empty {
+  background: var(--surface);
+  border: 1px dashed var(--line-strong);
+}
+.fm-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  color: var(--ink-faint);
+  font-size: 13px;
+  text-align: center;
+  padding: 0 16px;
+}
+
+.mini {
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  height: var(--bar);
+  min-width: 0;
+}
+/* One cell per legal move, drawn from elements, so the bands of a mate stay even and countable. */
+.cell {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  background: #fff;
+  border-right: 1px solid rgba(0, 0, 0, .08);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+/* Where the balance sits. */
+.zero {
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  background: orange;
+  pointer-events: none;
+  z-index: 1;
+}
+.black { width: 100%; background: #000; }
+.mates {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: lightgray;
+}
+.mate { flex: 1; }
+.mate.w { background: #fff; }
+.mate.b { background: #000; }
+/* The move played. A mate is painted over the whole cell, so the mark sits above it. */
+.cell.chosen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 0 3px #c6168d;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@media (max-width: 1000px) {
+  .fm { grid-template-columns: minmax(0, 1fr); --sq: min(44px, 10vw); --bar: 110px; }
+}
+@media (max-width: 480px) {
+  .wide { padding: 0 16px; }
+}
