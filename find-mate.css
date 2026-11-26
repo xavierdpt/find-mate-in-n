@@ -205,7 +205,6 @@ footer {
 .fm-panel h3 { margin: 6px 0 0; font-size: 14px; font-weight: 600; }
 .fm-panel select, .fm-panel button { font: inherit; color: var(--ink); background: var(--surface);
             border: 1px solid var(--line-strong); border-radius: 4px; padding: 4px 6px; }
-.fm-panel #fm-file { flex: 1; min-width: 0; }
 .fm-panel #fm-profiles { width: 100%; font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace; }
 .fm-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .fm-check { gap: 6px; }
@@ -215,6 +214,25 @@ footer {
 .fm-count { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .fm-panel-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .fm-match { font-size: 13px; color: var(--ink-soft); }
+
+/* The table of files: scrolls inside its box, its head kept in view. */
+.fm-files-section { margin: 0 auto 40px; display: flex; flex-direction: column; gap: 8px; }
+.fm-files-section h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.fm-files { max-height: 460px; overflow: auto; border: 1px solid var(--line); border-radius: 6px;
+            background: var(--surface); }
+.fm-files table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+.fm-files th, .fm-files td { padding: 3px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.fm-files thead th { position: sticky; top: 0; background: var(--surface-2); z-index: 1; }
+.fm-files thead button { font: inherit; font-weight: 600; color: var(--ink); background: none; border: 0;
+                         padding: 4px 0; cursor: pointer; }
+.fm-files tbody th button { font: inherit; color: var(--focus); background: none; border: 0; padding: 0;
+                            cursor: pointer; text-decoration: underline; }
+.fm-files tbody tr:hover { background: var(--surface-2); }
+.fm-files tr.current { background: var(--amber-tint); }
+.fm-files .fm-num { text-align: right; }
+.fm-files .fm-match-cell { font-weight: 600; color: var(--amber); }
+.fm-files .fm-show { background: rgba(47, 143, 91, .12); }
+.fm-files .fm-hide { color: var(--ink-faint); text-decoration: line-through; }
 
 /* ---- the board ---- */
 

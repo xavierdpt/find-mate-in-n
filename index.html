@@ -44,18 +44,17 @@ all, each with what kind of mate it is and its escapes: <span class="san">5/3/2<
 king, 3 of them not blocked by its own pieces, and 2 enemy pieces guarding those.</p>
 <section class="fm-panel" aria-label="Choose the positions">
 <h2>Positions</h2>
-<label class="fm-row">File <select id="fm-file"></select></label>
-<p class="fm-hint">Each file holds 1,000 positions. The counts beside a file are what it holds for the
-filter below: exact for one choice, an upper bound (≤) for several.</p>
+<p class="fm-hint">The filter applies to the file being played; the table of files below says what
+each file holds, so you can choose one.</p>
 <label class="fm-row fm-check"><input type="checkbox" id="fm-single"> Only positions with a single mate</label>
 <h3>Kinds of mate</h3>
 <p class="fm-hint">Show: a position with such a mate. Hide: no position where such a mate is possible.
-The count is the mates of that kind in this file.</p>
+The count is the mates of that kind in all files.</p>
 <div id="fm-labels" class="fm-labels-list"></div>
 <label class="fm-row">Shown kinds <select id="fm-combine"><option value="any">a mate of any of them</option>
 <option value="all">a mate of all of them</option></select></label>
 <h3>Escapes</h3>
-<p class="fm-hint">The escape profiles of this file, with their counts. Choose any number (Ctrl or ⌘ to
+<p class="fm-hint">The escape profiles, with their counts in all files. Choose any number (Ctrl or ⌘ to
 choose several); a position is shown when one of its mates has one of them, with the kinds above.</p>
 <select id="fm-profiles" multiple size="6"></select>
 <div class="fm-panel-foot"><button type="button" id="fm-clear">Clear the filter</button>
@@ -63,6 +62,15 @@ choose several); a position is shown when one of its mates has one of them, with
 </section>
 </div>
 </div></main>
+
+<section class="wide fm-files-section" aria-label="Files">
+<h2>Files</h2>
+<p class="fm-hint">Each file holds 1,000 positions. Each kind of mate shows its mates in the file, and in
+grey those in positions with a single mate; each escape profile chosen in the filter gets a column of its
+own. What a whole filter finds in a file is known once the file is loaded. Click a column to sort by it,
+and a file's number to play it.</p>
+<div id="fm-files" class="fm-files"></div>
+</section>
 
 <footer class="wide">Positions from games played on lichess.org.</footer>
 <script src="chess.js"></script>

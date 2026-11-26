@@ -107,7 +107,9 @@
         }
         return null;
       },
-      remaining: function (test) { return test ? this.queue.filter(test).length : this.queue.length; }
+      remaining: function (test) { return test ? this.queue.filter(test).length : this.queue.length; },
+      // A position dealt but not played goes back, at the end, to be dealt again later.
+      putBack: function (p) { this.queue.push(p); }
     };
   }
 
@@ -207,28 +209,68 @@
     return { ok: targets.length > 0, targets: targets };
   }
 
-  // What a file holds for the filter, from the index alone (requirement 5): {count, exact}. The index
-  // counts mates per label and per profile, not per combination, so only a single choice, with no
-  // label hidden, gives an exact count; several give the smallest, an upper bound.
-  function estimate(stats, filter) {
-    var labels = filter.single ? stats.singleLabels : stats.labels;
-    var profiles = filter.single ? stats.singleProfiles : stats.profiles;
-    var count = filter.single ? stats.single : stats.n;
-    var shown = withState(filter, 'show'), criteria = 0;
-    var of = function (table, key) { return (table && table[key]) || 0; };
-    if (shown.length) {
-      var each = shown.map(function (name) { return of(labels, name); });
-      count = Math.min(count, filter.combine === 'all' ? Math.min.apply(null, each)
-                                                       : each.reduce(function (a, b) { return a + b; }, 0));
-      criteria += shown.length;
+  /* ---- the files, from the index (task-mate-filters.md, requirements 2 and 5) ---- */
+
+  // Every kind of mate the index knows, alphabetically, "no label" last.
+  function kindsOf(index) {
+    var names = {};
+    index.f.forEach(function (stats) { Object.keys(stats.labels || {}).forEach(function (n) { names[n] = true; }); });
+    return Object.keys(names).sort(function (a, b) { return (a === NO_LABEL) - (b === NO_LABEL) || a.localeCompare(b); });
+  }
+
+  // One row per file: what the index says of it, the mates of every kind and of each profile asked
+  // for, all of them and those in single-mate positions. Nothing is guessed of what a filter would find
+  // in it: only loading the file tells.
+  function fileRows(index, filter) {
+    var kinds = kindsOf(index);
+    return index.f.map(function (stats, k) {
+      var row = { k: k, n: stats.n, single: stats.single, several: stats.several, kinds: {}, profiles: {} };
+      kinds.forEach(function (name) {
+        row.kinds[name] = { all: (stats.labels || {})[name] || 0, single: (stats.singleLabels || {})[name] || 0 };
+      });
+      filter.profiles.forEach(function (p) {
+        row.profiles[p] = { all: (stats.profiles || {})[p] || 0, single: (stats.singleProfiles || {})[p] || 0 };
+      });
+      return row;
+    });
+  }
+
+  // The rows sorted by a column: 'k' (the file), 'n', 'single', 'several', 'kind:<name>' or
+  // 'profile:<p>', a kind or a profile sorted by its mates in single-mate positions when the filter asks
+  // for those, else by all. Ties keep the files in order.
+  function sortRows(rows, key, desc, single) {
+    var value = function (row) {
+      var m = /^(kind|profile):(.*)$/.exec(key);
+      if (m) {
+        var c = (m[1] === 'kind' ? row.kinds : row.profiles)[m[2]] || { all: 0, single: 0 };
+        return single ? c.single : c.all;
+      }
+      return row[key];
+    };
+    return rows.slice().sort(function (a, b) {
+      var d = value(a) - value(b);
+      return (desc ? -d : d) || a.k - b.k;
+    });
+  }
+
+  // Profiles in the order of their numbers: around, then open, then controllers ("3/0/0" before
+  // "3/1/1" before "5/2/1" before "5/10/1").
+  function compareProfiles(a, b) {
+    var x = a.split('/').map(Number), y = b.split('/').map(Number);
+    for (var i = 0; i < Math.max(x.length, y.length); i++) {
+      if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
     }
-    if (filter.profiles.length) {
-      count = Math.min(count, filter.profiles.reduce(function (sum, p) { return sum + of(profiles, p); }, 0));
-      criteria++;
-    }
-    // Counted per mate: a position with several mates can be counted more than once.
-    var perMate = criteria > 0 && !filter.single && stats.several > 0;
-    return { count: count, exact: criteria <= 1 && !withState(filter, 'hide').length && !perMate };
+    return 0;
+  }
+
+  // The escape profiles of all files, with their counts (of single-mate positions only, if asked).
+  function profileTotals(index, single) {
+    var totals = {};
+    index.f.forEach(function (stats) {
+      var table = (single ? stats.singleProfiles : stats.profiles) || {};
+      Object.keys(table).forEach(function (p) { totals[p] = (totals[p] || 0) + table[p]; });
+    });
+    return totals;
   }
 
   // Why a move was not the answer, from what it left on the board.
@@ -243,7 +285,8 @@
     squareIndex: squareIndex, fullFen: fullFen, legalMoves: legalMoves, boardOf: boardOf,
     shuffle: shuffle, deck: deck, streak: streak, named: named, others: others, missed: missed,
     mateList: mateList, mateDetails: mateDetails, readFilter: readFilter, asks: asks, wanted: wanted,
-    passes: passes, estimate: estimate
+    passes: passes, kindsOf: kindsOf, fileRows: fileRows, sortRows: sortRows,
+    profileTotals: profileTotals, compareProfiles: compareProfiles
   };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
@@ -251,7 +294,7 @@
 
   var Chess = root.Chess;
   var page = null, cards = null, score = null, index = null, filter = null;
-  var loaded = -1, loading = null;
+  var loaded = -1, loading = null, sortBy = { key: 'k', desc: false };
   var position = null, chess = null, moves = [], board = [], white = true, squares = [];
   var origin = null, answer = null, done = false;
 
@@ -488,30 +531,52 @@
 
   /* ---- the file chooser and the filter panel ---- */
 
+  // The table of files: everything the index says of each, so a file can be chosen before it is loaded.
   function renderFiles() {
-    page.file.innerHTML = index.f.map(function (stats, k) {
-      var e = estimate(stats, filter);
-      var counted = (asks(filter) || filter.single) ? ' · ' + (e.exact ? '' : '≤ ') + e.count + ' match' : '';
-      return '<option value="' + k + '"' + (k === loaded ? ' selected' : '') + '>File ' + (k + 1) + ' · ' + stats.n +
-        ' positions · ' + stats.single + ' single' + counted + '</option>';
-    }).join('');
+    var kinds = kindsOf(index);
+    var head = function (key, text, title) {
+      var mark = sortBy.key === key ? (sortBy.desc ? ' ▾' : ' ▴') : '';
+      return '<th scope="col"><button type="button" data-sort="' + key + '" title="' + title + '">' + text + mark + '</button></th>';
+    };
+    var cell = function (c, extra) {
+      return '<td class="fm-num' + (extra || '') + '">' + c.all + ' <span class="fm-count">' + c.single + '</span></td>';
+    };
+    // A sort on a profile no longer asked for falls back to the file.
+    if (sortBy.key.indexOf('profile:') === 0 && filter.profiles.indexOf(sortBy.key.slice(8)) < 0) sortBy = { key: 'k', desc: false };
+    var rows = sortRows(fileRows(index, filter), sortBy.key, sortBy.desc, filter.single);
+    page.files.innerHTML = '<table><thead><tr>' +
+      head('k', 'File', 'Sort by file') +
+      head('n', 'Positions', 'Positions in the file') +
+      head('single', 'Single', 'Positions with a single mate') +
+      head('several', 'Several', 'Positions with several mates') +
+      kinds.map(function (name) {
+        return head('kind:' + name, name, 'Mates of this kind: all, and in single-mate positions');
+      }).join('') +
+      filter.profiles.map(function (p) {
+        return head('profile:' + p, p, 'Mates with these escapes: all, and in single-mate positions');
+      }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (row) {
+        return '<tr data-k="' + row.k + '"' + (row.k === loaded ? ' class="current"' : '') + '>' +
+          '<th scope="row"><button type="button" data-file="' + row.k + '">' + (row.k + 1) + '</button></th>' +
+          '<td class="fm-num">' + row.n + '</td><td class="fm-num">' + row.single + '</td><td class="fm-num">' + row.several + '</td>' +
+          kinds.map(function (name) { return cell(row.kinds[name], filter.labels[name] ? ' fm-' + filter.labels[name] : ''); }).join('') +
+          filter.profiles.map(function (p) { return cell(row.profiles[p], ' fm-show fm-profile'); }).join('') + '</tr>';
+      }).join('') + '</tbody></table>';
   }
 
-  // Every label the index knows, the ones with a mate first, "no label" last.
-  function allLabels() {
-    var names = {};
-    index.f.forEach(function (stats) { Object.keys(stats.labels || {}).forEach(function (n) { names[n] = true; }); });
-    Object.keys(filter.labels).forEach(function (n) { names[n] = true; });
-    return Object.keys(names).sort(function (a, b) { return (a === NO_LABEL) - (b === NO_LABEL) || a.localeCompare(b); });
-  }
-
+  // The filter panel; its counts are those of all files, so it can be set before a file is chosen.
   function renderFilter() {
-    var stats = loaded >= 0 ? index.f[loaded] : null;
-    var labels = stats ? (filter.single ? stats.singleLabels : stats.labels) : {};
-    var profiles = stats ? (filter.single ? stats.singleProfiles : stats.profiles) : {};
+    var labels = {};
+    fileRows(index, filter).forEach(function (row) {
+      Object.keys(row.kinds).forEach(function (n) { labels[n] = (labels[n] || 0) + (filter.single ? row.kinds[n].single : row.kinds[n].all); });
+    });
+    var profiles = profileTotals(index, filter.single);
+    var kinds = kindsOf(index);
     page.single.checked = filter.single;
     page.combine.value = filter.combine;
-    page.labels.innerHTML = allLabels().map(function (name) {
+    page.labels.innerHTML = kinds.concat(Object.keys(filter.labels).filter(function (n) {
+      return kinds.indexOf(n) < 0;
+    })).map(function (name) {
       var state = filter.labels[name] || '';
       return '<label class="fm-label-row"><span>' + name + ' <span class="fm-count">' + ((labels || {})[name] || 0) +
         '</span></span><select data-label="' + name + '">' +
@@ -519,9 +584,10 @@
           return '<option value="' + v + '"' + (v === state ? ' selected' : '') + '>' + (v || '—') + '</option>';
         }).join('') + '</select></label>';
     }).join('');
-    // The profiles of the file loaded, most common first, and any chosen that it lacks.
-    var keys = Object.keys(profiles || {}).sort(function (a, b) { return profiles[b] - profiles[a] || a.localeCompare(b); });
+    // The profiles of all files, and any chosen that none has, in the order of their numbers.
+    var keys = Object.keys(profiles || {});
     filter.profiles.forEach(function (p) { if (keys.indexOf(p) < 0) keys.push(p); });
+    keys.sort(compareProfiles);
     page.profiles.innerHTML = keys.map(function (p) {
       return '<option value="' + p + '"' + (filter.profiles.indexOf(p) >= 0 ? ' selected' : '') + '>' + p + ' (' +
         ((profiles || {})[p] || 0) + ')</option>';
@@ -535,17 +601,33 @@
       ' left for this filter, of ' + all + ' not yet dealt.';
   }
 
-  // A filter changed: kept, applied at once to what the file has not dealt yet.
+  // A filter changed: kept, and applied at once. The position on the board, not answered yet, goes
+  // back to the deck when it no longer passes, and the next one that does is dealt in its place; at
+  // the end of the file, the new filter may find more.
   function changed() {
     store(STORE_FILTER, filter);
     renderFiles();
     renderFilter();
+    if (loaded >= 0 && position && !done && !test(position)) {
+      cards.putBack(position);
+      position = null;
+    }
     renderMatch();
     if (!position && loaded >= 0) show();
   }
 
   function wirePanel() {
-    page.file.addEventListener('change', function () { load(cards.choose(Number(page.file.value))); });
+    page.files.addEventListener('click', function (event) {
+      var sort = event.target.closest('[data-sort]'), file = event.target.closest('[data-file]');
+      if (sort) {
+        var key = sort.dataset.sort;
+        // A column clicked again turns round; a count starts with the largest, the file with the first.
+        sortBy = sortBy.key === key ? { key: key, desc: !sortBy.desc } : { key: key, desc: key !== 'k' };
+        renderFiles();
+      } else if (file) {
+        load(cards.choose(Number(file.dataset.file)));
+      }
+    });
     page.single.addEventListener('change', function () { filter.single = page.single.checked; changed(); });
     page.combine.addEventListener('change', function () { filter.combine = page.combine.value; changed(); });
     page.labels.addEventListener('change', function (event) {
@@ -567,7 +649,7 @@
     page = {
       board: id('fm-board'), level: id('fm-level'), turn: id('fm-turn'), score: id('fm-score'),
       verdict: id('fm-verdict'), next: id('fm-next'), give: id('fm-give'), here: id('bar-here'),
-      file: id('fm-file'), single: id('fm-single'), combine: id('fm-combine'), labels: id('fm-labels'),
+      files: id('fm-files'), single: id('fm-single'), combine: id('fm-combine'), labels: id('fm-labels'),
       profiles: id('fm-profiles'), clear: id('fm-clear'), match: id('fm-match')
     };
     page.board.addEventListener('click', onBoardClick);
@@ -589,6 +671,7 @@
       cards = deck(index.files, Array.isArray(seen) ? seen : []);
       wirePanel();
       renderFilter();
+      renderFiles();
       load(cards.pick());
     }).catch(fail);
   });
