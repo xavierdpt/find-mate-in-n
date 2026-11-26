@@ -620,19 +620,17 @@
       ' left for this filter, of ' + all + ' not yet dealt.';
   }
 
-  // A filter changed: kept, and applied at once. The position on the board, not answered yet, goes
-  // back to the deck when it no longer passes, and the next one that does is dealt in its place; at
-  // the end of the file, the new filter may find more.
+  // A filter changed: kept, and applied at once, with a new position under it. The position on the
+  // board goes back to the deck if it was not answered yet, to come again later; at the end of the
+  // file, the new filter may find more.
   function changed() {
     store(STORE_FILTER, filter);
     renderFiles();
     renderFilter();
-    if (loaded >= 0 && position && !done && !test(position)) {
-      cards.putBack(position);
-      position = null;
-    }
-    renderMatch();
-    if (!position && loaded >= 0) show();
+    if (loaded < 0) return;
+    if (position && !done) cards.putBack(position);
+    position = null;
+    show();
   }
 
   function wirePanel() {
