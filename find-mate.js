@@ -278,6 +278,18 @@
     return totals;
   }
 
+  // What the filter finds in the file loaded, in positions: how many pass, and how many are still to come
+  // after the one on the board (counts of mates are not counts of positions: one position can hold
+  // seven mates of a profile).
+  function matchLine(file, passing, left, onBoard, filtering) {
+    var head = 'File ' + file + ': ';
+    if (!passing) return head + 'no position passes this filter.';
+    var more = left === 0 ? 'none' : String(left);
+    return head + passing + (filtering ? (passing === 1 ? ' position passes' : ' positions pass') + ' this filter; '
+                                      : (passing === 1 ? ' position; ' : ' positions; ')) +
+      (onBoard ? 'this one, and ' + more + ' after it.' : more + ' still to come.');
+  }
+
   // Why a move was not the answer, from what it left on the board.
   function missed(san, check, stalemate) {
     var move = '<span class="san">' + san + '</span>';
@@ -291,7 +303,7 @@
     shuffle: shuffle, deck: deck, streak: streak, named: named, others: others, missed: missed,
     mateList: mateList, mateDetails: mateDetails, readFilter: readFilter, asks: asks, wanted: wanted,
     passes: passes, kindsOf: kindsOf, profilesOf: profilesOf, fileRows: fileRows, sortRows: sortRows,
-    profileTotals: profileTotals, compareProfiles: compareProfiles
+    profileTotals: profileTotals, compareProfiles: compareProfiles, matchLine: matchLine
   };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
@@ -592,18 +604,11 @@
 
   // The filter panel; its counts are those of all files, so it can be set before a file is chosen.
   function renderFilter() {
-    // Each kind and profile with two counts: in the file loaded, which the filter searches, and in all
-    // files, which the table of files breaks down.
+    // Each kind and profile with its mates in the file loaded, the one the filter searches; the table of
+    // files shows the others.
     var here = loaded >= 0 ? index.f[loaded] : null;
     var hereLabels = here ? ((filter.single ? here.singleLabels : here.labels) || {}) : {};
     var hereProfiles = here ? ((filter.single ? here.singleProfiles : here.profiles) || {}) : {};
-    var labels = {};
-    fileRows(index).forEach(function (row) {
-      Object.keys(row.kinds).forEach(function (n) { labels[n] = (labels[n] || 0) + (filter.single ? row.kinds[n].single : row.kinds[n].all); });
-    });
-    var counts = function (inFile, inAll) {
-      return here ? inFile + ' here · ' + inAll + ' in all' : inAll + ' in all';
-    };
     var kinds = kindsOf(index);
     page.single.checked = filter.single;
     page.combine.value = filter.combine;
@@ -612,7 +617,7 @@
     })).map(function (name) {
       var state = filter.labels[name] || '';
       return '<label class="fm-label-row"><span>' + name + ' <span class="fm-count">' +
-        counts(hereLabels[name] || 0, labels[name] || 0) + '</span></span><select data-label="' + name + '">' +
+        (here ? hereLabels[name] || 0 : '') + '</span></span><select data-label="' + name + '">' +
         ['', 'show', 'hide'].map(function (v) {
           return '<option value="' + v + '"' + (v === state ? ' selected' : '') + '>' + (v || '—') + '</option>';
         }).join('') + '</select></label>';
@@ -630,9 +635,9 @@
 
   function renderMatch() {
     if (loaded < 0) { page.match.textContent = ''; return; }
-    var all = cards.remaining(), left = cards.remaining(test);
-    page.match.textContent = 'File ' + (loaded + 1) + ': ' + left + ' position' + (left === 1 ? '' : 's') +
-      ' left for this filter, of ' + all + ' not yet dealt.';
+    page.match.textContent = matchLine(loaded + 1, (cards.order || []).filter(test).length, cards.remaining(test),
+                                       !!position && test(position),
+                                       asks(filter) || filter.single || withState(filter, 'hide').length > 0);
   }
 
   // A filter changed: kept, and applied from the start of the file, positions already dealt included,
