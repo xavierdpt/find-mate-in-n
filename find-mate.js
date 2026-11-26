@@ -510,8 +510,14 @@
     if (next) { setUp(next); return; }
     position = null;
     page.give.disabled = true;
-    verdict('', 'You have reached the end of file ' + (loaded + 1) + (asks(filter) || filter.single || withState(filter, 'hide').length
-      ? ' for this filter' : '') + '. Choose another file, or change the filter.');
+    var filtering = asks(filter) || filter.single || withState(filter, 'hide').length;
+    // Nothing of the file passes, from its start: say so, rather than an end the player never saw.
+    var none = filtering && !(cards.order || []).some(test);
+    verdict('', none
+      ? 'No position of file ' + (loaded + 1) + ' passes this filter. The table of files below shows which files hold ' +
+        'the kinds and escapes you chose: sort it by one of them, and choose a file.'
+      : 'You have reached the end of file ' + (loaded + 1) + (filtering ? ' for this filter' : '') +
+        '. Choose another file, or change the filter.');
     renderMatch();
   }
 
@@ -586,11 +592,19 @@
 
   // The filter panel; its counts are those of all files, so it can be set before a file is chosen.
   function renderFilter() {
+    // Each kind and profile with two counts: in the file loaded, which the filter searches, and in all
+    // files, which the table of files breaks down.
+    var here = loaded >= 0 ? index.f[loaded] : null;
+    var hereLabels = here ? ((filter.single ? here.singleLabels : here.labels) || {}) : {};
+    var hereProfiles = here ? ((filter.single ? here.singleProfiles : here.profiles) || {}) : {};
     var labels = {};
-    fileRows(index, filter).forEach(function (row) {
+    fileRows(index).forEach(function (row) {
       Object.keys(row.kinds).forEach(function (n) { labels[n] = (labels[n] || 0) + (filter.single ? row.kinds[n].single : row.kinds[n].all); });
     });
     var profiles = profileTotals(index, filter.single);
+    var counts = function (inFile, inAll) {
+      return here ? inFile + ' here · ' + inAll + ' in all' : inAll + ' in all';
+    };
     var kinds = kindsOf(index);
     page.single.checked = filter.single;
     page.combine.value = filter.combine;
@@ -598,8 +612,8 @@
       return kinds.indexOf(n) < 0;
     })).map(function (name) {
       var state = filter.labels[name] || '';
-      return '<label class="fm-label-row"><span>' + name + ' <span class="fm-count">' + ((labels || {})[name] || 0) +
-        '</span></span><select data-label="' + name + '">' +
+      return '<label class="fm-label-row"><span>' + name + ' <span class="fm-count">' +
+        counts(hereLabels[name] || 0, labels[name] || 0) + '</span></span><select data-label="' + name + '">' +
         ['', 'show', 'hide'].map(function (v) {
           return '<option value="' + v + '"' + (v === state ? ' selected' : '') + '>' + (v || '—') + '</option>';
         }).join('') + '</select></label>';
@@ -609,8 +623,8 @@
     filter.profiles.forEach(function (p) { if (keys.indexOf(p) < 0) keys.push(p); });
     keys.sort(compareProfiles);
     page.profiles.innerHTML = keys.map(function (p) {
-      return '<option value="' + p + '"' + (filter.profiles.indexOf(p) >= 0 ? ' selected' : '') + '>' + p + ' (' +
-        ((profiles || {})[p] || 0) + ')</option>';
+      return '<option value="' + p + '"' + (filter.profiles.indexOf(p) >= 0 ? ' selected' : '') + '>' + p + ' — ' +
+        counts(hereProfiles[p] || 0, profiles[p] || 0) + '</option>';
     }).join('');
   }
 
