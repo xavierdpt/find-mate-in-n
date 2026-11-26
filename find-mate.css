@@ -222,9 +222,25 @@ footer {
             background: var(--surface); }
 .fm-files table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
 .fm-files th, .fm-files td { padding: 3px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-.fm-files thead th { position: sticky; top: 0; background: var(--surface-2); z-index: 1; }
-.fm-files thead button { font: inherit; font-weight: 600; color: var(--ink); background: none; border: 0;
-                         padding: 4px 0; cursor: pointer; }
+/* Two header rows, both kept in view: a kind (or a profile) over its "all" and "single" columns. */
+.fm-files thead tr:first-child th { position: sticky; top: 0; background: var(--surface-2); z-index: 2; height: 26px; }
+.fm-files thead tr:first-child th[rowspan] { z-index: 3; }
+.fm-files thead tr:nth-child(2) th { position: sticky; top: 33px; background: var(--surface-2); z-index: 1;
+                                     font-weight: 400; }
+.fm-files thead th[colspan] { text-align: center; font-weight: 600; }
+.fm-files thead button { font: inherit; color: var(--ink); background: none; border: 0; padding: 2px 0;
+                         cursor: pointer; border-bottom: 1px dashed var(--line-strong); }
+.fm-files thead th[rowspan] button { font-weight: 600; }
+.fm-files thead button:hover { color: var(--focus); border-bottom-color: var(--focus); }
+.fm-files thead button.sorted { color: var(--amber); border-bottom: 1px solid var(--amber); }
+.fm-files .fm-group-start { border-left: 1px solid var(--line); }
+.fm-files .fm-profiles-start { border-left: 2px solid var(--line-strong); }
+/* The file's number stays in view while the table scrolls sideways. */
+.fm-files .fm-file-col { position: sticky; left: 0; background: var(--surface); z-index: 1;
+                         border-right: 1px solid var(--line); }
+.fm-files thead .fm-file-col { background: var(--surface-2); z-index: 4; }
+.fm-files tbody tr:hover .fm-file-col { background: var(--surface-2); }
+.fm-files tbody tr.current .fm-file-col { background: var(--amber-tint); }
 .fm-files tbody th button { font: inherit; color: var(--focus); background: none; border: 0; padding: 0;
                             cursor: pointer; text-decoration: underline; }
 .fm-files tbody tr:hover { background: var(--surface-2); }
@@ -233,6 +249,7 @@ footer {
 .fm-files .fm-match-cell { font-weight: 600; color: var(--amber); }
 .fm-files .fm-show { background: rgba(47, 143, 91, .12); }
 .fm-files .fm-hide { color: var(--ink-faint); text-decoration: line-through; }
+.fm-files thead th.fm-show { background: #dcefe3; }
 
 /* ---- the board ---- */
 

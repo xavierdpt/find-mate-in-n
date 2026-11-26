@@ -218,33 +218,37 @@
     return Object.keys(names).sort(function (a, b) { return (a === NO_LABEL) - (b === NO_LABEL) || a.localeCompare(b); });
   }
 
-  // One row per file: what the index says of it, the mates of every kind and of each profile asked
-  // for, all of them and those in single-mate positions. Nothing is guessed of what a filter would find
-  // in it: only loading the file tells.
-  function fileRows(index, filter) {
-    var kinds = kindsOf(index);
+  // Every escape profile of every file, in the order of their numbers.
+  function profilesOf(index) {
+    var names = {};
+    index.f.forEach(function (stats) { Object.keys(stats.profiles || {}).forEach(function (p) { names[p] = true; }); });
+    return Object.keys(names).sort(compareProfiles);
+  }
+
+  // One row per file: what the index says of it, the mates of every kind and of every escape profile,
+  // all of them and those in single-mate positions. Nothing is guessed of what a filter would find in
+  // it: only loading the file tells.
+  function fileRows(index) {
+    var kinds = kindsOf(index), profiles = profilesOf(index);
     return index.f.map(function (stats, k) {
       var row = { k: k, n: stats.n, single: stats.single, several: stats.several, kinds: {}, profiles: {} };
       kinds.forEach(function (name) {
         row.kinds[name] = { all: (stats.labels || {})[name] || 0, single: (stats.singleLabels || {})[name] || 0 };
       });
-      filter.profiles.forEach(function (p) {
+      profiles.forEach(function (p) {
         row.profiles[p] = { all: (stats.profiles || {})[p] || 0, single: (stats.singleProfiles || {})[p] || 0 };
       });
       return row;
     });
   }
 
-  // The rows sorted by a column: 'k' (the file), 'n', 'single', 'several', 'kind:<name>' or
-  // 'profile:<p>', a kind or a profile sorted by its mates in single-mate positions when the filter asks
-  // for those, else by all. Ties keep the files in order.
-  function sortRows(rows, key, desc, single) {
+  // The rows sorted by a column: 'k' (the file), 'n', 'single', 'several', or a kind's or a profile's
+  // count, 'kind:<name>:all', 'kind:<name>:single', 'profile:<p>:all', 'profile:<p>:single' (all its
+  // mates, or those in single-mate positions). Ties keep the files in order.
+  function sortRows(rows, key, desc) {
     var value = function (row) {
-      var m = /^(kind|profile):(.*)$/.exec(key);
-      if (m) {
-        var c = (m[1] === 'kind' ? row.kinds : row.profiles)[m[2]] || { all: 0, single: 0 };
-        return single ? c.single : c.all;
-      }
+      var m = /^(kind|profile):(.*):(all|single)$/.exec(key);
+      if (m) return ((m[1] === 'kind' ? row.kinds : row.profiles)[m[2]] || { all: 0, single: 0 })[m[3]];
       return row[key];
     };
     return rows.slice().sort(function (a, b) {
@@ -285,7 +289,7 @@
     squareIndex: squareIndex, fullFen: fullFen, legalMoves: legalMoves, boardOf: boardOf,
     shuffle: shuffle, deck: deck, streak: streak, named: named, others: others, missed: missed,
     mateList: mateList, mateDetails: mateDetails, readFilter: readFilter, asks: asks, wanted: wanted,
-    passes: passes, kindsOf: kindsOf, fileRows: fileRows, sortRows: sortRows,
+    passes: passes, kindsOf: kindsOf, profilesOf: profilesOf, fileRows: fileRows, sortRows: sortRows,
     profileTotals: profileTotals, compareProfiles: compareProfiles
   };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
@@ -532,35 +536,50 @@
   /* ---- the file chooser and the filter panel ---- */
 
   // The table of files: everything the index says of each, so a file can be chosen before it is loaded.
+  // Every kind, then every escape profile in the order of their numbers, gets two columns: all its mates
+  // and those in single-mate positions, each sorted on its own. The table scrolls sideways, the file's
+  // number kept in view; the kinds and profiles the filter uses are marked.
   function renderFiles() {
     var kinds = kindsOf(index);
-    var head = function (key, text, title) {
+    var sortButton = function (key, text, title) {
       var mark = sortBy.key === key ? (sortBy.desc ? ' ▾' : ' ▴') : '';
-      return '<th scope="col"><button type="button" data-sort="' + key + '" title="' + title + '">' + text + mark + '</button></th>';
+      return '<button type="button" data-sort="' + key + '" title="' + title + '"' +
+        (sortBy.key === key ? ' class="sorted"' : '') + '>' + text + mark + '</button>';
     };
-    var cell = function (c, extra) {
-      return '<td class="fm-num' + (extra || '') + '">' + c.all + ' <span class="fm-count">' + c.single + '</span></td>';
+    var plain = function (key, text, title, extra) {
+      return '<th scope="col" rowspan="2"' + (extra ? ' class="' + extra + '"' : '') + '>' + sortButton(key, text, title) + '</th>';
     };
-    // A sort on a profile no longer asked for falls back to the file.
-    if (sortBy.key.indexOf('profile:') === 0 && filter.profiles.indexOf(sortBy.key.slice(8)) < 0) sortBy = { key: 'k', desc: false };
-    var rows = sortRows(fileRows(index, filter), sortBy.key, sortBy.desc, filter.single);
+    var groups = kinds.map(function (name) {
+      return { key: 'kind:' + name, text: name, what: 'mates of this kind', state: filter.labels[name] || '' };
+    }).concat(profilesOf(index).map(function (p, i) {
+      return { key: 'profile:' + p, text: p, what: 'mates with these escapes', state: filter.profiles.indexOf(p) >= 0 ? 'show' : '',
+               first: i === 0 };
+    }));
+    var rows = sortRows(fileRows(index), sortBy.key, sortBy.desc);
+    var count = function (c, g, part) {
+      return '<td class="fm-num' + (g.state ? ' fm-' + g.state : '') + (part === 'all' ? ' fm-group-start' : '') + '">' + c[part] + '</td>';
+    };
     page.files.innerHTML = '<table><thead><tr>' +
-      head('k', 'File', 'Sort by file') +
-      head('n', 'Positions', 'Positions in the file') +
-      head('single', 'Single', 'Positions with a single mate') +
-      head('several', 'Several', 'Positions with several mates') +
-      kinds.map(function (name) {
-        return head('kind:' + name, name, 'Mates of this kind: all, and in single-mate positions');
-      }).join('') +
-      filter.profiles.map(function (p) {
-        return head('profile:' + p, p, 'Mates with these escapes: all, and in single-mate positions');
+      plain('k', 'File', 'Sort by file', 'fm-file-col') +
+      plain('n', 'Positions', 'Positions in the file') +
+      plain('single', 'Single', 'Positions with a single mate') +
+      plain('several', 'Several', 'Positions with several mates') +
+      groups.map(function (g) {
+        return '<th scope="colgroup" colspan="2" class="fm-group-start' + (g.first ? ' fm-profiles-start' : '') +
+          (g.state ? ' fm-' + g.state : '') + '">' + g.text + '</th>';
+      }).join('') + '</tr><tr>' +
+      groups.map(function (g) {
+        return '<th scope="col" class="fm-group-start">' + sortButton(g.key + ':all', 'all', g.what + ', all') + '</th>' +
+          '<th scope="col">' + sortButton(g.key + ':single', 'single', g.what + ', in single-mate positions') + '</th>';
       }).join('') + '</tr></thead><tbody>' +
       rows.map(function (row) {
         return '<tr data-k="' + row.k + '"' + (row.k === loaded ? ' class="current"' : '') + '>' +
-          '<th scope="row"><button type="button" data-file="' + row.k + '">' + (row.k + 1) + '</button></th>' +
+          '<th scope="row" class="fm-file-col"><button type="button" data-file="' + row.k + '">' + (row.k + 1) + '</button></th>' +
           '<td class="fm-num">' + row.n + '</td><td class="fm-num">' + row.single + '</td><td class="fm-num">' + row.several + '</td>' +
-          kinds.map(function (name) { return cell(row.kinds[name], filter.labels[name] ? ' fm-' + filter.labels[name] : ''); }).join('') +
-          filter.profiles.map(function (p) { return cell(row.profiles[p], ' fm-show fm-profile'); }).join('') + '</tr>';
+          groups.map(function (g) {
+            var c = g.key.indexOf('kind:') === 0 ? row.kinds[g.key.slice(5)] : row.profiles[g.key.slice(8)];
+            return count(c, g, 'all') + count(c, g, 'single');
+          }).join('') + '</tr>';
       }).join('') + '</tbody></table>';
   }
 
