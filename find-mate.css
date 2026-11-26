@@ -112,7 +112,6 @@ footer {
 /* The board keeps its own colours whatever the theme, so a position always looks the same. */
 .fm {
   --sq: 58px;
-  --bar: 150px;
   display: grid;
   grid-template-columns: calc(8 * var(--sq) + var(--sq) / 2) minmax(0, 1fr);
   gap: 22px;
@@ -189,6 +188,7 @@ footer {
 
 .fm-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .fm-legend { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; margin: 0; }
+.fm-legend .san { font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace; }
 
 /* ---- the board ---- */
 
@@ -281,84 +281,8 @@ footer {
 }
 .promo button:hover { background-color: #e8a33d; }
 
-/* ---- the bars, once the answer is in ---- */
-
-.fm-bars {
-  background: var(--wood);
-  border-radius: 4px;
-  padding: 4px;
-  min-height: calc(var(--bar) + 8px);
-  display: flex;
-}
-/* Before the answer there is nothing to draw, and bare wood that size reads as a missing
-   picture, so the empty box is plain. */
-.fm-bars.empty {
-  background: var(--surface);
-  border: 1px dashed var(--line-strong);
-}
-.fm-hint {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  color: var(--ink-faint);
-  font-size: 13px;
-  text-align: center;
-  padding: 0 16px;
-}
-
-.mini {
-  display: flex;
-  flex: 1 1 auto;
-  width: 100%;
-  height: var(--bar);
-  min-width: 0;
-}
-/* One cell per legal move, drawn from elements, so the bands of a mate stay even and countable. */
-.cell {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  background: #fff;
-  border-right: 1px solid rgba(0, 0, 0, .08);
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-}
-/* Where the balance sits. */
-.zero {
-  position: absolute;
-  left: 0; right: 0; top: 50%;
-  height: 2px;
-  margin-top: -1px;
-  background: orange;
-  pointer-events: none;
-  z-index: 1;
-}
-.black { width: 100%; background: #000; }
-.mates {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  background: lightgray;
-}
-.mate { flex: 1; }
-.mate.w { background: #fff; }
-.mate.b { background: #000; }
-/* The move played. A mate is painted over the whole cell, so the mark sits above it. */
-.cell.chosen::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  box-shadow: inset 0 0 0 3px #c6168d;
-  pointer-events: none;
-  z-index: 2;
-}
-
 @media (max-width: 1000px) {
-  .fm { grid-template-columns: minmax(0, 1fr); --sq: min(44px, 10vw); --bar: 110px; }
+  .fm { grid-template-columns: minmax(0, 1fr); --sq: min(44px, 10vw); }
 }
 @media (max-width: 480px) {
   .wide { padding: 0 16px; }

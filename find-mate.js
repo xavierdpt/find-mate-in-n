@@ -1,71 +1,52 @@
-/* Find the mate in n.
+/* Find the mate in 1 (task-mate-in-1.md).
  *
- * levels.json lists the mate distances the site has and how many positions each holds, and
- * mate-<n>.json holds the positions of one distance, every legal move scored. A level is a
- * distance: answer a mate in n and the next position is a mate at the next distance the site
- * has; miss one and the next is a mate in one again. A level's file is fetched the first time it
- * is needed, and the next level's file is fetched ahead while a position is on the board.
+ * index.json says how many position files the site has, and mates-<k>.json holds 1,000 positions,
+ * each a FEN and its mates in 1, every one of them. The page deals one file at a time: it picks a
+ * file at random among those it has not loaded yet, deals all of its positions in a random order,
+ * and only then picks another. The files loaded are kept in the browser, and once every file has
+ * been loaded the page starts again from all of them. The next file is fetched while the last
+ * position of the current one is on the board.
  *
- * The answer is a move played on the board, and it is right when it scores a mate in exactly n,
- * which is often more than one move, so the verdict names the others. Nothing here knows the
- * rules of chess: a click is looked up in the position's own move list, and applying a move to
- * the board is three special cases: castling, en passant, promotion.
- *
- * A move token is [san:2][from:1][to:1][score:2][flags], digits base 64 (build.py, encode_move).
+ * The rules come from chess.js (chess.js, beside this file): the legal moves of the position, the
+ * move played, and whether it mates. A right answer adds one to the streak; a miss, or giving up,
+ * resets it.
  */
 (function (root) {
   'use strict';
 
-  var DIGITS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
   var FILES = 'abcdefgh';
-  var STORE = 'findmateinn.best';
-  var HINT = 'Every legal move, scored, once you have answered.';
-  var ASK = 'Pick up a piece and play the move you think forces mate.';
+  var STORE_BEST = 'findmatein1.best';
+  var STORE_SEEN = 'findmatein1.seen';
+  var ASK = 'Pick up a piece and play the move that mates.';
 
-  /* ---- a position out of a level file ---- */
+  /* ---- squares and moves ---- */
 
-  function d1(ch) { return DIGITS.indexOf(ch); }
-  function d12(pair) { return DIGITS.indexOf(pair[0]) * 64 + DIGITS.indexOf(pair[1]); }
+  // 'e4' as 28: a1 = 0, h8 = 63.
+  function squareIndex(name) { return (name.charCodeAt(0) - 97) + 8 * (Number(name[1]) - 1); }
 
-  function decode(puzzle) {
-    return puzzle.m.split(' ').map(function (token) {
-      var flags = token.slice(6);
-      var promo = flags.match(/[qrbn]/);
-      return {
-        san: puzzle.d[d12(token.slice(0, 2))],
-        from: d1(token[2]),
-        to: d1(token[3]),
-        score: d12(token.slice(4, 6)) - 2048,
-        mate: flags.indexOf('!') >= 0,
-        promo: promo ? promo[0] : null
-      };
+  // chess.js wants the move counters, which the database's FENs leave out.
+  function fullFen(fen) { return fen.split(' ').length < 6 ? fen + ' 0 1' : fen; }
+
+  // The legal moves, with their squares as indexes.
+  function legalMoves(chess) {
+    return chess.moves({ verbose: true }).map(function (move) {
+      return { san: move.san, from: squareIndex(move.from), to: squareIndex(move.to),
+               promo: move.promotion || null, uci: move.from + move.to + (move.promotion || '') };
     });
   }
 
-  function whiteToMove(puzzle) { return puzzle.f.split(' ')[1] !== 'b'; }
-
-  function applyMove(board, move) {
-    var next = board.slice();
-    var piece = next[move.from];
-    var fromFile = move.from % 8, toFile = move.to % 8;
-    var fromRank = Math.floor(move.from / 8), toRank = Math.floor(move.to / 8);
-
-    // Castling: the king crosses two files, and the rook lands on the square it passed.
-    if ((piece === 'K' || piece === 'k') && Math.abs(toFile - fromFile) === 2) {
-      var side = toFile > fromFile ? 7 : 0;
-      next[toRank * 8 + (toFile > fromFile ? 5 : 3)] = next[toRank * 8 + side];
-      next[toRank * 8 + side] = ' ';
-    }
-    // En passant: a pawn that leaves its file onto an empty square takes the pawn beside it.
-    if ((piece === 'P' || piece === 'p') && fromFile !== toFile && next[move.to] === ' ') {
-      next[fromRank * 8 + toFile] = ' ';
-    }
-    next[move.to] = move.promo ? (piece === 'P' ? move.promo.toUpperCase() : move.promo) : piece;
-    next[move.from] = ' ';
-    return next;
+  // The board as sixty-four letters, a1 first, ' ' for an empty square.
+  function boardOf(chess) {
+    var squares = new Array(64).fill(' ');
+    chess.board().forEach(function (row) {
+      row.forEach(function (cell) {
+        if (cell) squares[squareIndex(cell.square)] = cell.color === 'w' ? cell.type.toUpperCase() : cell.type;
+      });
+    });
+    return squares;
   }
 
-  /* ---- the ladder ---- */
+  /* ---- the deck: one file at a time ---- */
 
   function shuffle(list, random) {
     random = random || Math.random;
@@ -76,32 +57,56 @@
     return list;
   }
 
-  // The levels, in order, each a distance whose positions arrive when its file is loaded. A
-  // level's positions are shuffled once and dealt in order, so none comes round again before the
-  // rest of its level has been seen. `best` counts levels cleared, 0 until the first one is.
-  function ladder(distances, best) {
-    var decks = {};
+  // `count` files, `seen` the ones already loaded (kept between visits). `pick` chooses the next
+  // file among those not yet loaded, never the one being dealt, and starts again from all of them
+  // once every file has been loaded. `fill` takes a file's positions, shuffled, and `deal` hands
+  // them out until the file is done.
+  function deck(count, seen, random) {
+    random = random || Math.random;
+    var loaded = (seen || []).filter(function (k) { return k >= 0 && k < count; });
     return {
-      distances: distances,
-      level: 0,
-      solved: 0,
-      best: best || 0,
-      key: function () { return distances[this.level]; },
-      has: function (level) { return !!decks[distances[level]]; },
-      fill: function (distance, puzzles, random) {
-        if (!decks[distance]) decks[distance] = { items: shuffle(puzzles.slice(), random), at: 0 };
+      count: count,
+      current: -1,
+      seen: loaded,
+      queue: [],
+      pick: function () {
+        var self = this;
+        var fresh = function () {
+          var out = [];
+          for (var k = 0; k < count; k++) if (self.seen.indexOf(k) < 0 && k !== self.current) out.push(k);
+          return out;
+        };
+        var choices = fresh();
+        if (!choices.length) {
+          // Every file has been loaded: start again, except with the one just dealt, if there is another.
+          this.seen = this.current >= 0 && count > 1 ? [this.current] : [];
+          choices = fresh();
+          if (!choices.length) choices = [0];
+        }
+        var chosen = choices[Math.floor(random() * choices.length)];
+        if (this.seen.indexOf(chosen) < 0) this.seen.push(chosen);
+        return chosen;
       },
-      deal: function (random) {
-        var deck = decks[this.key()];
-        if (deck.at >= deck.items.length) { shuffle(deck.items, random); deck.at = 0; }
-        return deck.items[deck.at++];
+      fill: function (index, positions) {
+        this.current = index;
+        this.queue = shuffle(positions.slice(), random);
       },
+      deal: function () { return this.queue.length ? this.queue.shift() : null; },
+      remaining: function () { return this.queue.length; }
+    };
+  }
+
+  /* ---- the streak ---- */
+
+  function streak(best) {
+    return {
+      current: 0, best: best || 0, solved: 0,
       win: function () {
         this.solved++;
-        if (this.level + 1 > this.best) this.best = this.level + 1;
-        this.level = Math.min(this.level + 1, distances.length - 1);
+        this.current++;
+        if (this.current > this.best) this.best = this.current;
       },
-      lose: function () { this.level = 0; }
+      lose: function () { this.current = 0; }
     };
   }
 
@@ -116,38 +121,41 @@
 
   function others(names, played) {
     var rest = names.filter(function (san) { return san !== played; });
-    if (!rest.length) return 'It is the only move that does.';
-    if (rest.length > 4) return 'So do ' + rest.length + ' of the other moves.';
+    if (!rest.length) return 'It is the only mate.';
+    if (rest.length > 4) return 'So do ' + rest.length + ' other moves.';
     return 'So ' + (rest.length === 1 ? 'does ' : 'do ') + named(rest) + '.';
   }
 
-  // Why the move was not the answer: it mates more slowly than the position allows, it lets the
-  // other side mate, or it mates nobody.
-  function missed(move, distance) {
-    var san = '<span class="san">' + move.san + '</span>';
-    if (move.mate && move.score > 0) return san + ' mates in ' + move.score + ', not in ' + distance + '.';
-    if (move.mate) return san + ' throws it away: mate in ' + Math.abs(move.score) + ' against.';
-    return san + ' keeps the game going at ' + move.score + ' centipawns.';
+  // Why a move was not the answer, from what it left on the board.
+  function missed(san, check, stalemate) {
+    var move = '<span class="san">' + san + '</span>';
+    if (stalemate) return move + ' is stalemate.';
+    if (check) return move + ' gives check, but it is not mate.';
+    return move + ' is not mate.';
   }
 
   var api = {
-    decode: decode, whiteToMove: whiteToMove, applyMove: applyMove, shuffle: shuffle,
-    ladder: ladder, named: named, others: others, missed: missed
+    squareIndex: squareIndex, fullFen: fullFen, legalMoves: legalMoves, boardOf: boardOf,
+    shuffle: shuffle, deck: deck, streak: streak, named: named, others: others, missed: missed
   };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   /* ---- the page ---- */
 
-  var page = null, run = null, loading = {};
-  var puzzle = null, moves = [], board = [], white = true, squares = [];
+  var Chess = root.Chess;
+  var page = null, cards = null, score = null, pending = null;
+  var position = null, chess = null, moves = [], board = [], white = true, squares = [];
   var origin = null, answer = null, done = false;
 
-  function remembered() {
-    try { return Number(localStorage.getItem(STORE)) || 0; } catch (error) { return 0; }
+  function stored(key, fallback) {
+    try {
+      var value = localStorage.getItem(key);
+      return value === null ? fallback : JSON.parse(value);
+    } catch (error) { return fallback; }
   }
 
-  function remember(value) {
-    try { localStorage.setItem(STORE, String(value)); } catch (error) { /* private window */ }
+  function store(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (error) { /* a private window */ }
   }
 
   function fetchJson(name) {
@@ -157,16 +165,16 @@
     });
   }
 
-  // A level's positions, fetched once; a second request for it waits on the first.
-  function load(level) {
-    var distance = run.distances[level];
-    if (run.has(level)) return Promise.resolve();
-    if (!loading[distance]) {
-      loading[distance] = fetchJson('mate-' + distance + '.json').then(function (file) {
-        run.fill(distance, file.p || []);
-      });
+  function fileName(index) { return 'mates-' + String(index).padStart(3, '0') + '.json'; }
+
+  // The next file, picked and fetched once: a second call waits on the first.
+  function nextFile() {
+    if (!pending) {
+      var index = cards.pick();
+      store(STORE_SEEN, cards.seen);
+      pending = fetchJson(fileName(index)).then(function (file) { return { index: index, positions: file.p || [] }; });
     }
-    return loading[distance];
+    return pending;
   }
 
   function fail(error) {
@@ -223,76 +231,45 @@
     }
   }
 
-  // A cell per legal move: the balance in centipawns, or a countable stack of bands for a mate.
-  function cell(move) {
-    var fromWhite = white ? move.score : -move.score;
-    if (move.mate) {
-      var count = Math.min(20, Math.max(1, Math.abs(move.score)));
-      var bands = '';
-      for (var i = 0; i < count; i++) bands += '<div class="mate ' + (fromWhite > 0 ? 'w' : 'b') + '"></div>';
-      return '<div class="mates">' + bands + '</div>';
-    }
-    var black = Math.max(0, Math.min(100, 50 - 5 * fromWhite / 100));
-    return '<div class="zero"></div><div class="black" style="height:' + black + '%"></div>';
-  }
-
-  function drawBars(chosen) {
-    page.bars.className = 'fm-bars';
-    page.bars.innerHTML = '<div class="mini">' + moves.map(function (move, index) {
-      return '<div class="cell' + (index === chosen ? ' chosen' : '') + '" title="' + move.san + ': ' +
-             (move.mate ? 'mate ' : 'cp ') + move.score + '">' + cell(move) + '</div>';
-    }).join('') + '</div>';
-  }
-
-  function closeBars() {
-    page.bars.className = 'fm-bars empty';
-    page.bars.innerHTML = '<div class="fm-hint">' + HINT + '</div>';
-  }
-
-  function label(distance) { return 'mate in ' + distance; }
-
   function renderScore() {
-    page.score.innerHTML = 'level <b>' + (run.level + 1) + '</b> of ' + run.distances.length +
-      ' · solved ' + run.solved + ' · best <b>' + (run.best ? label(run.distances[run.best - 1]) : '—') + '</b>';
+    page.score.innerHTML = 'streak <b>' + score.current + '</b> · best <b>' + score.best + '</b> · solved ' + score.solved;
   }
 
   function renderHead() {
-    page.level.innerHTML = 'Find the mate in <span class="fm-n">' + run.key() + '</span>';
+    page.level.innerHTML = 'Find the mate in <span class="fm-n">1</span>';
     page.turn.hidden = false;
     page.turn.textContent = white ? 'White to move' : 'Black to move';
     page.turn.className = 'fm-turn ' + (white ? 'white' : 'black');
-    page.here.textContent = puzzle.f;
+    page.here.textContent = position[0];
     renderScore();
   }
-
-  function mating(move) { return move.mate && move.score === run.key(); }
 
   function answered(move, gaveUp) {
     answer = move;
     done = true;
     origin = null;
-    if (move) board = applyMove(board, move);
-
-    var right = !gaveUp && move && mating(move);
-    var answers = moves.filter(mating).map(function (m) { return m.san; });
-    var distance = run.key();
+    var answers = position[1];
+    var right = false, check = false, stalemate = false;
+    if (move) {
+      chess.move(move.san);
+      right = !gaveUp && chess.isCheckmate();
+      check = chess.isCheck();
+      stalemate = chess.isStalemate();
+      board = boardOf(chess);
+    }
 
     if (right) {
-      run.win();
-      remember(run.best);
-      verdict('right', '<b class="good">Found it.</b> <span class="san">' + move.san + '</span> forces mate in ' +
-        distance + '. ' + others(answers, move.san) + ' Next: mate in ' + run.key() + '.');
+      score.win();
+      store(STORE_BEST, score.best);
+      verdict('right', '<b class="good">Mate.</b> <span class="san">' + move.san + '</span>. ' + others(answers, move.san));
     } else {
-      run.lose();
-      verdict('wrong', (gaveUp
-        ? '<b>The mate in ' + distance + ' was ' + named(answers) + '.</b>'
-        : '<b class="bad">Not that one.</b> ' + missed(move, distance) +
-          ' The mate in ' + distance + ' was ' + named(answers) + '.') +
-        ' Back to mate in ' + run.key() + '.');
+      score.lose();
+      verdict('wrong', gaveUp
+        ? '<b>The mate was ' + named(answers) + '.</b>'
+        : '<b class="bad">Not that one.</b> ' + missed(move.san, check, stalemate) + ' The mate was ' + named(answers) + '.');
     }
 
     renderScore();
-    drawBars(moves.indexOf(move));
     page.next.disabled = false;
     page.give.disabled = true;
     paint();
@@ -352,25 +329,35 @@
 
   /* ---- a position ---- */
 
+  function setUp(next) {
+    position = next;
+    chess = new Chess(fullFen(position[0]));
+    moves = legalMoves(chess);
+    board = boardOf(chess);
+    white = chess.turn() === 'w';
+    origin = null;
+    answer = null;
+    done = false;
+    page.give.disabled = false;
+    closePromotion();
+    squares = drawBoard(!white);
+    renderHead();
+    paint();
+    verdict('', ASK);
+    // The last position of the file is on the board: fetch the next file while it is played.
+    if (!cards.remaining()) nextFile().catch(function () {});
+  }
+
   function show() {
     page.next.disabled = true;
-    load(run.level).then(function () {
-      puzzle = run.deal();
-      moves = decode(puzzle);
-      board = puzzle.b.split('');
-      white = whiteToMove(puzzle);
-      origin = null;
-      answer = null;
-      done = false;
-      page.give.disabled = false;
-      closePromotion();
-      squares = drawBoard(!white);
-      renderHead();
-      paint();
-      closeBars();
-      if (page.verdict.className !== 'fm-verdict') verdict('', ASK);
-      // The level a right answer leads to, fetched while this one is played.
-      if (run.level + 1 < run.distances.length) load(run.level + 1).catch(function () {});
+    var next = cards.deal();
+    if (next) { setUp(next); return; }
+    nextFile().then(function (file) {
+      pending = null;
+      cards.fill(file.index, file.positions);
+      var first = cards.deal();
+      if (!first) throw new Error(fileName(file.index) + ' holds no position');
+      setUp(first);
     }).catch(fail);
   }
 
@@ -378,24 +365,23 @@
     var id = document.getElementById.bind(document);
     page = {
       board: id('fm-board'), level: id('fm-level'), turn: id('fm-turn'), score: id('fm-score'),
-      verdict: id('fm-verdict'), bars: id('fm-bars'), next: id('fm-next'), give: id('fm-give'),
-      here: id('bar-here')
+      verdict: id('fm-verdict'), next: id('fm-next'), give: id('fm-give'), here: id('bar-here')
     };
     page.board.addEventListener('click', onBoardClick);
     page.next.addEventListener('click', function () { if (!page.next.disabled) show(); });
-    page.give.addEventListener('click', function () { if (!done) answered(null, true); });
+    page.give.addEventListener('click', function () { if (!done && position) answered(null, true); });
     document.addEventListener('keydown', function (event) {
       // Enter on the focused button already clicks it; only the page itself needs handling.
       if (event.key === 'Enter' && done && event.target.tagName !== 'BUTTON') show();
-      if (event.key === 'Escape' && puzzle) { closePromotion(); origin = null; paint(); }
+      if (event.key === 'Escape' && position) { closePromotion(); origin = null; paint(); }
     });
 
-    fetchJson('levels.json').then(function (index) {
-      var distances = (index.l || []).filter(function (level) { return level.c > 0; })
-        .map(function (level) { return level.n; });
-      if (!distances.length) throw new Error('levels.json lists no position');
-      // A best kept from a time the site had more levels is held to the levels it has now.
-      run = ladder(distances, Math.min(remembered(), distances.length));
+    if (!Chess) { fail(new Error('chess.js did not load')); return; }
+    score = streak(Number(stored(STORE_BEST, 0)) || 0);
+    fetchJson('index.json').then(function (index) {
+      if (!index.files) throw new Error('index.json lists no position file');
+      var seen = stored(STORE_SEEN, []);
+      cards = deck(index.files, Array.isArray(seen) ? seen : []);
       show();
     }).catch(fail);
   });
