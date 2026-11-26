@@ -312,6 +312,8 @@
   var Chess = root.Chess;
   var page = null, cards = null, score = null, index = null, filter = null;
   var loaded = -1, loading = null, sortBy = { key: 'k', desc: false };
+  // The index's figures, one row per file, computed once.
+  var fileData = null;
   var position = null, chess = null, moves = [], board = [], white = true, squares = [];
   var origin = null, answer = null, done = false;
 
@@ -544,7 +546,7 @@
       cards.fill(k, file.p || []);
       loaded = k;
       store(STORE_SEEN, cards.seen);
-      renderFiles();
+      markFiles();
       renderFilter();
       show();
     });
@@ -557,49 +559,98 @@
   // The table of files: everything the index says of each, so a file can be chosen before it is loaded.
   // Every kind, then every escape profile in the order of their numbers, gets two columns: all its mates
   // and those in single-mate positions, each sorted on its own. The table scrolls sideways, the file's
-  // number kept in view; the kinds and profiles the filter uses are marked.
+  // number kept in view.
+  //
+  // A thousand rows of nearly two hundred cells took the browser seconds to lay out on every sort, so
+  // only the rows in view (and a margin) are in the page; spacers above and below keep the scrollbar
+  // true, and a scroll, a sort or a file played redraws those rows alone. The columns have fixed widths,
+  // so that rows coming and going do not move them.
+  var ROW_BUFFER = 15;
+  var fileGroups = null, fileOrder = null, rowHeight = 0, drawPending = false;
+
   function renderFiles() {
     var kinds = kindsOf(index);
+    fileGroups = kinds.map(function (name) {
+      return { key: 'kind:' + name, text: name, what: 'mates of this kind' };
+    }).concat(profilesOf(index).map(function (p, i) {
+      return { key: 'profile:' + p, text: p, what: 'mates with these escapes', first: i === 0 };
+    }));
+    fileData = fileRows(index);
     var sortButton = function (key, text, title) {
-      var mark = sortBy.key === key ? (sortBy.desc ? ' ▾' : ' ▴') : '';
-      return '<button type="button" data-sort="' + key + '" title="' + title + '"' +
-        (sortBy.key === key ? ' class="sorted"' : '') + '>' + text + mark + '</button>';
+      return '<button type="button" data-sort="' + key + '" data-text="' + text + '" title="' + title + '">' + text + '</button>';
     };
     var plain = function (key, text, title, extra) {
       return '<th scope="col" rowspan="2"' + (extra ? ' class="' + extra + '"' : '') + '>' + sortButton(key, text, title) + '</th>';
     };
-    var groups = kinds.map(function (name) {
-      return { key: 'kind:' + name, text: name, what: 'mates of this kind', state: filter.labels[name] || '' };
-    }).concat(profilesOf(index).map(function (p, i) {
-      return { key: 'profile:' + p, text: p, what: 'mates with these escapes', state: filter.profiles.indexOf(p) >= 0 ? 'show' : '',
-               first: i === 0 };
-    }));
-    var rows = sortRows(fileRows(index), sortBy.key, sortBy.desc);
-    var count = function (c, g, part) {
-      return '<td class="fm-num' + (g.state ? ' fm-' + g.state : '') + (part === 'all' ? ' fm-group-start' : '') + '">' + c[part] + '</td>';
-    };
-    page.files.innerHTML = '<table><thead><tr>' +
+    var widths = [64, 84, 64, 72];
+    fileGroups.forEach(function () { widths.push(64, 64); });
+    page.files.innerHTML = '<table style="width:' + widths.reduce(function (a, b) { return a + b; }, 0) + 'px"><colgroup>' +
+      widths.map(function (w) { return '<col style="width:' + w + 'px">'; }).join('') + '</colgroup><thead><tr>' +
       plain('k', 'File', 'Sort by file', 'fm-file-col') +
       plain('n', 'Positions', 'Positions in the file') +
       plain('single', 'Single', 'Positions with a single mate') +
       plain('several', 'Several', 'Positions with several mates') +
-      groups.map(function (g) {
-        return '<th scope="colgroup" colspan="2" class="fm-group-start' + (g.first ? ' fm-profiles-start' : '') +
-          (g.state ? ' fm-' + g.state : '') + '">' + g.text + '</th>';
+      fileGroups.map(function (g) {
+        return '<th scope="colgroup" colspan="2" class="fm-group-start' + (g.first ? ' fm-profiles-start' : '') + '">' + g.text + '</th>';
       }).join('') + '</tr><tr>' +
-      groups.map(function (g) {
+      fileGroups.map(function (g) {
         return '<th scope="col" class="fm-group-start">' + sortButton(g.key + ':all', 'all', g.what + ', all') + '</th>' +
           '<th scope="col">' + sortButton(g.key + ':single', 'single', g.what + ', in single-mate positions') + '</th>';
-      }).join('') + '</tr></thead><tbody>' +
-      rows.map(function (row) {
-        return '<tr data-k="' + row.k + '"' + (row.k === loaded ? ' class="current"' : '') + '>' +
-          '<th scope="row" class="fm-file-col"><button type="button" data-file="' + row.k + '">' + (row.k + 1) + '</button></th>' +
-          '<td class="fm-num">' + row.n + '</td><td class="fm-num">' + row.single + '</td><td class="fm-num">' + row.several + '</td>' +
-          groups.map(function (g) {
-            var c = g.key.indexOf('kind:') === 0 ? row.kinds[g.key.slice(5)] : row.profiles[g.key.slice(8)];
-            return count(c, g, 'all') + count(c, g, 'single');
-          }).join('') + '</tr>';
-      }).join('') + '</tbody></table>';
+      }).join('') + '</tr></thead><tbody></tbody></table>';
+    page.files.addEventListener('scroll', function () {
+      if (drawPending) return;
+      drawPending = true;
+      requestAnimationFrame(function () { drawPending = false; drawFileRows(); });
+    });
+    sortFiles();
+  }
+
+  function fileRowHtml(row) {
+    var count = function (c, part) {
+      return '<td class="fm-num' + (part === 'all' ? ' fm-group-start' : '') + '">' + c[part] + '</td>';
+    };
+    return '<tr data-k="' + row.k + '"' + (row.k === loaded ? ' class="current"' : '') + '>' +
+      '<th scope="row" class="fm-file-col"><button type="button" data-file="' + row.k + '">' + (row.k + 1) + '</button></th>' +
+      '<td class="fm-num">' + row.n + '</td><td class="fm-num">' + row.single + '</td><td class="fm-num">' + row.several + '</td>' +
+      fileGroups.map(function (g) {
+        var c = g.key.indexOf('kind:') === 0 ? row.kinds[g.key.slice(5)] : row.profiles[g.key.slice(8)];
+        return count(c, 'all') + count(c, 'single');
+      }).join('') + '</tr>';
+  }
+
+  // The rows in view, and a margin, between two spacers as tall as the rows left out.
+  function drawFileRows() {
+    var body = page.files.querySelector('tbody');
+    if (!body || !fileOrder) return;
+    var head = page.files.querySelector('thead').offsetHeight;
+    var height = rowHeight || 26;
+    var first = Math.max(0, Math.floor((page.files.scrollTop - head) / height) - ROW_BUFFER);
+    var last = Math.min(fileOrder.length, first + Math.ceil(page.files.clientHeight / height) + 2 * ROW_BUFFER);
+    var span = 4 + 2 * fileGroups.length;
+    var spacer = function (rows) {
+      return rows > 0 ? '<tr class="fm-spacer" style="height:' + rows * height + 'px"><td colspan="' + span + '"></td></tr>' : '';
+    };
+    body.innerHTML = spacer(first) + fileOrder.slice(first, last).map(fileRowHtml).join('') + spacer(fileOrder.length - last);
+    if (!rowHeight) {
+      var drawn = body.querySelector('tr[data-k]');
+      if (drawn && drawn.offsetHeight) { rowHeight = drawn.offsetHeight; drawFileRows(); }
+    }
+  }
+
+  // A sort: the rows put in the new order, the arrows of the head updated, and the rows in view drawn.
+  function sortFiles() {
+    fileOrder = sortRows(fileData, sortBy.key, sortBy.desc);
+    Array.prototype.forEach.call(page.files.querySelectorAll('thead button[data-sort]'), function (button) {
+      var on = button.dataset.sort === sortBy.key;
+      button.classList.toggle('sorted', on);
+      button.textContent = button.dataset.text + (on ? (sortBy.desc ? ' ▾' : ' ▴') : '');
+    });
+    drawFileRows();
+  }
+
+  // The file played, marked in the table. The table shows nothing of the filter.
+  function markFiles() {
+    drawFileRows();
   }
 
   // The filter panel; its counts are those of all files, so it can be set before a file is chosen.
@@ -644,7 +695,6 @@
   // with the first one that passes on the board at once.
   function changed() {
     store(STORE_FILTER, filter);
-    renderFiles();
     renderFilter();
     if (loaded < 0) return;
     cards.restart();
@@ -659,7 +709,7 @@
         var key = sort.dataset.sort;
         // A column clicked again turns round; a count starts with the largest, the file with the first.
         sortBy = sortBy.key === key ? { key: key, desc: !sortBy.desc } : { key: key, desc: key !== 'k' };
-        renderFiles();
+        sortFiles();
       } else if (file) {
         load(cards.choose(Number(file.dataset.file)));
       }
