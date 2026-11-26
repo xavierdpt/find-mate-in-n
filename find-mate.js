@@ -1,11 +1,16 @@
-/* Find the mate in 1 (task-mate-in-1.md).
+/* Find the mate in 1 (task-mate-in-1.md, task-mate-filters.md).
  *
- * index.json says how many position files the site has, and mates-<k>.json holds 1,000 positions,
- * each a FEN and its mates in 1, every one of them. The page deals one file at a time: it picks a
- * file at random among those it has not loaded yet, deals all of its positions in a random order,
- * and only then picks another. The files loaded are kept in the browser, and once every file has
- * been loaded the page starts again from all of them. The next file is fetched while the last
- * position of the current one is on the board.
+ * index.json says how many position files the site has and describes each of them (its positions,
+ * single or several mates, its mates' labels and escape profiles), and mates-<k>.json holds 1,000
+ * positions, each a FEN and its mates in 1, every one of them, each [san, escapes, labels]: the
+ * escape profile and the labels of task-mate-categories.md, shown once the position is answered.
+ *
+ * The page starts on a file picked at random among those not loaded yet (the files loaded are kept
+ * in the browser, and once every file has been loaded the page starts again from all of them), and
+ * the player can switch to any other file from the chooser, which shows what the index says of each.
+ * The filter (single mate only, labels shown or hidden, escape profiles) applies to the file loaded
+ * alone; its positions are dealt in a random order, those that pass the filter, until the end of the
+ * file, which is said. The filter is kept in the browser.
  *
  * The rules come from chess.js (chess.js, beside this file): the legal moves of the position, the
  * move played, and whether it mates. A right answer adds one to the streak; a miss, or giving up,
@@ -17,6 +22,8 @@
   var FILES = 'abcdefgh';
   var STORE_BEST = 'findmatein1.best';
   var STORE_SEEN = 'findmatein1.seen';
+  var STORE_FILTER = 'findmatein1.filter';
+  var NO_LABEL = 'no label';
   var ASK = 'Pick up a piece and play the move that mates.';
 
   /* ---- squares and moves ---- */
@@ -59,8 +66,9 @@
 
   // `count` files, `seen` the ones already loaded (kept between visits). `pick` chooses the next
   // file among those not yet loaded, never the one being dealt, and starts again from all of them
-  // once every file has been loaded. `fill` takes a file's positions, shuffled, and `deal` hands
-  // them out until the file is done.
+  // once every file has been loaded; `choose` notes a file the player picked. `fill` takes a file's
+  // positions, shuffled, and `deal` hands out the next one that passes `test` (all of them without
+  // one), leaving the others in place for a filter changed later.
   function deck(count, seen, random) {
     random = random || Math.random;
     var loaded = (seen || []).filter(function (k) { return k >= 0 && k < count; });
@@ -83,16 +91,23 @@
           choices = fresh();
           if (!choices.length) choices = [0];
         }
-        var chosen = choices[Math.floor(random() * choices.length)];
-        if (this.seen.indexOf(chosen) < 0) this.seen.push(chosen);
-        return chosen;
+        return this.choose(choices[Math.floor(random() * choices.length)]);
+      },
+      choose: function (index) {
+        if (this.seen.indexOf(index) < 0) this.seen.push(index);
+        return index;
       },
       fill: function (index, positions) {
         this.current = index;
         this.queue = shuffle(positions.slice(), random);
       },
-      deal: function () { return this.queue.length ? this.queue.shift() : null; },
-      remaining: function () { return this.queue.length; }
+      deal: function (test) {
+        for (var i = 0; i < this.queue.length; i++) {
+          if (!test || test(this.queue[i])) return this.queue.splice(i, 1)[0];
+        }
+        return null;
+      },
+      remaining: function (test) { return test ? this.queue.filter(test).length : this.queue.length; }
     };
   }
 
@@ -126,6 +141,96 @@
     return 'So ' + (rest.length === 1 ? 'does ' : 'do ') + named(rest) + '.';
   }
 
+  // A position's mates: [san, escapes, labels] each (a file of version 3), or a SAN alone (before).
+  function mateList(position) {
+    return position[1].map(function (m) {
+      return typeof m === 'string' ? { san: m, escapes: null, labels: [] } : { san: m[0], escapes: m[1], labels: m[2] || [] };
+    });
+  }
+
+  // What is known of each mate, once the position is answered: its labels and its escape profile,
+  // the one played marked.
+  function mateDetails(mates, played) {
+    return '<ul class="fm-mates">' + mates.map(function (m) {
+      var labels = m.labels.length ? m.labels.join(', ') : 'no label yet';
+      return '<li' + (m.san === played ? ' class="played"' : '') + '><span class="san">' + m.san + '</span> ' +
+        '<span class="fm-labels">' + labels + '</span>' +
+        (m.escapes ? ' <span class="fm-escapes" title="squares around the king / not taken by its own pieces / enemy pieces controlling them">' + m.escapes + '</span>' : '') +
+        '</li>';
+    }).join('') + '</ul>';
+  }
+
+  /* ---- the filter (task-mate-filters.md, requirement 4) ---- */
+
+  // single: only positions with one mate; labels: {name: 'show' | 'hide'}, NO_LABEL standing for a
+  // mate without one; combine: a mate with 'any' or 'all' of the shown labels; profiles: escape
+  // profiles, any of them. A stored filter is read back with whatever it lacks filled in.
+  function readFilter(stored) {
+    var f = stored && typeof stored === 'object' ? stored : {};
+    var labels = {};
+    Object.keys(f.labels || {}).forEach(function (name) {
+      if (f.labels[name] === 'show' || f.labels[name] === 'hide') labels[name] = f.labels[name];
+    });
+    return { single: !!f.single, labels: labels, combine: f.combine === 'all' ? 'all' : 'any',
+             profiles: Array.isArray(f.profiles) ? f.profiles.slice() : [] };
+  }
+
+  function withState(filter, state) {
+    return Object.keys(filter.labels).filter(function (name) { return filter.labels[name] === state; });
+  }
+
+  function labelNames(mate) { return mate.labels.length ? mate.labels : [NO_LABEL]; }
+
+  // Whether the filter asks for something: shown labels or profiles.
+  function asks(filter) { return withState(filter, 'show').length > 0 || filter.profiles.length > 0; }
+
+  // A mate the filter asks for: the shown labels (any or all of them) and one of the profiles, both on
+  // this same mate.
+  function wanted(mate, filter) {
+    var shown = withState(filter, 'show'), names = labelNames(mate);
+    var has = function (name) { return names.indexOf(name) >= 0; };
+    if (shown.length && !(filter.combine === 'all' ? shown.every(has) : shown.some(has))) return false;
+    if (filter.profiles.length && filter.profiles.indexOf(mate.escapes) < 0) return false;
+    return true;
+  }
+
+  // Whether a position passes the filter, and its mates the filter asks for (all of them when it
+  // asks for nothing): dropped when it has several mates under "single", or when any mate has a hidden
+  // label, since that one could be played instead.
+  function passes(position, filter) {
+    var mates = mateList(position);
+    if (filter.single && mates.length !== 1) return { ok: false, targets: [] };
+    var hidden = withState(filter, 'hide');
+    var hides = function (m) { return labelNames(m).some(function (n) { return hidden.indexOf(n) >= 0; }); };
+    if (hidden.length && mates.some(hides)) return { ok: false, targets: [] };
+    var targets = asks(filter) ? mates.filter(function (m) { return wanted(m, filter); }) : mates;
+    return { ok: targets.length > 0, targets: targets };
+  }
+
+  // What a file holds for the filter, from the index alone (requirement 5): {count, exact}. The index
+  // counts mates per label and per profile, not per combination, so only a single choice, with no
+  // label hidden, gives an exact count; several give the smallest, an upper bound.
+  function estimate(stats, filter) {
+    var labels = filter.single ? stats.singleLabels : stats.labels;
+    var profiles = filter.single ? stats.singleProfiles : stats.profiles;
+    var count = filter.single ? stats.single : stats.n;
+    var shown = withState(filter, 'show'), criteria = 0;
+    var of = function (table, key) { return (table && table[key]) || 0; };
+    if (shown.length) {
+      var each = shown.map(function (name) { return of(labels, name); });
+      count = Math.min(count, filter.combine === 'all' ? Math.min.apply(null, each)
+                                                       : each.reduce(function (a, b) { return a + b; }, 0));
+      criteria += shown.length;
+    }
+    if (filter.profiles.length) {
+      count = Math.min(count, filter.profiles.reduce(function (sum, p) { return sum + of(profiles, p); }, 0));
+      criteria++;
+    }
+    // Counted per mate: a position with several mates can be counted more than once.
+    var perMate = criteria > 0 && !filter.single && stats.several > 0;
+    return { count: count, exact: criteria <= 1 && !withState(filter, 'hide').length && !perMate };
+  }
+
   // Why a move was not the answer, from what it left on the board.
   function missed(san, check, stalemate) {
     var move = '<span class="san">' + san + '</span>';
@@ -136,14 +241,17 @@
 
   var api = {
     squareIndex: squareIndex, fullFen: fullFen, legalMoves: legalMoves, boardOf: boardOf,
-    shuffle: shuffle, deck: deck, streak: streak, named: named, others: others, missed: missed
+    shuffle: shuffle, deck: deck, streak: streak, named: named, others: others, missed: missed,
+    mateList: mateList, mateDetails: mateDetails, readFilter: readFilter, asks: asks, wanted: wanted,
+    passes: passes, estimate: estimate
   };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
 
   /* ---- the page ---- */
 
   var Chess = root.Chess;
-  var page = null, cards = null, score = null, pending = null;
+  var page = null, cards = null, score = null, index = null, filter = null;
+  var loaded = -1, loading = null;
   var position = null, chess = null, moves = [], board = [], white = true, squares = [];
   var origin = null, answer = null, done = false;
 
@@ -165,17 +273,7 @@
     });
   }
 
-  function fileName(index) { return 'mates-' + String(index).padStart(3, '0') + '.json'; }
-
-  // The next file, picked and fetched once: a second call waits on the first.
-  function nextFile() {
-    if (!pending) {
-      var index = cards.pick();
-      store(STORE_SEEN, cards.seen);
-      pending = fetchJson(fileName(index)).then(function (file) { return { index: index, positions: file.p || [] }; });
-    }
-    return pending;
-  }
+  function fileName(k) { return 'mates-' + String(k).padStart(3, '0') + '.json'; }
 
   function fail(error) {
     page.level.textContent = 'No positions';
@@ -248,7 +346,10 @@
     answer = move;
     done = true;
     origin = null;
-    var answers = position[1];
+    var mates = mateList(position);
+    var answers = mates.map(function (m) { return m.san; });
+    var targets = passes(position, filter).targets.map(function (m) { return m.san; });
+    var asked = asks(filter) && targets.length && targets.length < answers.length;
     var right = false, check = false, stalemate = false;
     if (move) {
       chess.move(move.san);
@@ -261,15 +362,19 @@
     if (right) {
       score.win();
       store(STORE_BEST, score.best);
-      verdict('right', '<b class="good">Mate.</b> <span class="san">' + move.san + '</span>. ' + others(answers, move.san));
+      verdict('right', '<b class="good">Mate.</b> <span class="san">' + move.san + '</span>. ' + others(answers, move.san) +
+        (asked && targets.indexOf(move.san) < 0 ? ' It is not the mate the filter asks for: that was ' + named(targets) + '.' : ''));
     } else {
       score.lose();
-      verdict('wrong', gaveUp
+      verdict('wrong', (gaveUp
         ? '<b>The mate was ' + named(answers) + '.</b>'
-        : '<b class="bad">Not that one.</b> ' + missed(move.san, check, stalemate) + ' The mate was ' + named(answers) + '.');
+        : '<b class="bad">Not that one.</b> ' + missed(move.san, check, stalemate) + ' The mate was ' + named(answers) + '.') +
+        (asked ? ' The filter asked for ' + named(targets) + '.' : ''));
     }
 
+    page.verdict.innerHTML += mateDetails(mates, right ? move.san : null);
     renderScore();
+    renderMatch();
     page.next.disabled = false;
     page.give.disabled = true;
     paint();
@@ -329,6 +434,8 @@
 
   /* ---- a position ---- */
 
+  function test(p) { return passes(p, filter).ok; }
+
   function setUp(next) {
     position = next;
     chess = new Chess(fullFen(position[0]));
@@ -344,45 +451,145 @@
     renderHead();
     paint();
     verdict('', ASK);
-    // The last position of the file is on the board: fetch the next file while it is played.
-    if (!cards.remaining()) nextFile().catch(function () {});
+    renderMatch();
   }
 
+  // The next position of the file loaded that passes the filter, or the end of the file, said.
   function show() {
     page.next.disabled = true;
-    var next = cards.deal();
+    if (loaded < 0) return;
+    var next = cards.deal(test);
     if (next) { setUp(next); return; }
-    nextFile().then(function (file) {
-      pending = null;
-      cards.fill(file.index, file.positions);
-      var first = cards.deal();
-      if (!first) throw new Error(fileName(file.index) + ' holds no position');
-      setUp(first);
-    }).catch(fail);
+    position = null;
+    page.give.disabled = true;
+    verdict('', 'You have reached the end of file ' + (loaded + 1) + (asks(filter) || filter.single || withState(filter, 'hide').length
+      ? ' for this filter' : '') + '. Choose another file, or change the filter.');
+    renderMatch();
+  }
+
+  // A file, loaded and dealt from; a second call for the same file waits on the first.
+  function load(k) {
+    if (loading && loading.k === k) return loading.promise;
+    page.next.disabled = true;
+    verdict('', 'Loading file ' + (k + 1) + '…');
+    var promise = fetchJson(fileName(k)).then(function (file) {
+      if (loading && loading.k !== k) return;
+      loading = null;
+      cards.fill(k, file.p || []);
+      loaded = k;
+      store(STORE_SEEN, cards.seen);
+      renderFiles();
+      renderFilter();
+      show();
+    });
+    loading = { k: k, promise: promise };
+    return promise.catch(fail);
+  }
+
+  /* ---- the file chooser and the filter panel ---- */
+
+  function renderFiles() {
+    page.file.innerHTML = index.f.map(function (stats, k) {
+      var e = estimate(stats, filter);
+      var counted = (asks(filter) || filter.single) ? ' · ' + (e.exact ? '' : '≤ ') + e.count + ' match' : '';
+      return '<option value="' + k + '"' + (k === loaded ? ' selected' : '') + '>File ' + (k + 1) + ' · ' + stats.n +
+        ' positions · ' + stats.single + ' single' + counted + '</option>';
+    }).join('');
+  }
+
+  // Every label the index knows, the ones with a mate first, "no label" last.
+  function allLabels() {
+    var names = {};
+    index.f.forEach(function (stats) { Object.keys(stats.labels || {}).forEach(function (n) { names[n] = true; }); });
+    Object.keys(filter.labels).forEach(function (n) { names[n] = true; });
+    return Object.keys(names).sort(function (a, b) { return (a === NO_LABEL) - (b === NO_LABEL) || a.localeCompare(b); });
+  }
+
+  function renderFilter() {
+    var stats = loaded >= 0 ? index.f[loaded] : null;
+    var labels = stats ? (filter.single ? stats.singleLabels : stats.labels) : {};
+    var profiles = stats ? (filter.single ? stats.singleProfiles : stats.profiles) : {};
+    page.single.checked = filter.single;
+    page.combine.value = filter.combine;
+    page.labels.innerHTML = allLabels().map(function (name) {
+      var state = filter.labels[name] || '';
+      return '<label class="fm-label-row"><span>' + name + ' <span class="fm-count">' + ((labels || {})[name] || 0) +
+        '</span></span><select data-label="' + name + '">' +
+        ['', 'show', 'hide'].map(function (v) {
+          return '<option value="' + v + '"' + (v === state ? ' selected' : '') + '>' + (v || '—') + '</option>';
+        }).join('') + '</select></label>';
+    }).join('');
+    // The profiles of the file loaded, most common first, and any chosen that it lacks.
+    var keys = Object.keys(profiles || {}).sort(function (a, b) { return profiles[b] - profiles[a] || a.localeCompare(b); });
+    filter.profiles.forEach(function (p) { if (keys.indexOf(p) < 0) keys.push(p); });
+    page.profiles.innerHTML = keys.map(function (p) {
+      return '<option value="' + p + '"' + (filter.profiles.indexOf(p) >= 0 ? ' selected' : '') + '>' + p + ' (' +
+        ((profiles || {})[p] || 0) + ')</option>';
+    }).join('');
+  }
+
+  function renderMatch() {
+    if (loaded < 0) { page.match.textContent = ''; return; }
+    var all = cards.remaining(), left = cards.remaining(test);
+    page.match.textContent = 'File ' + (loaded + 1) + ': ' + left + ' position' + (left === 1 ? '' : 's') +
+      ' left for this filter, of ' + all + ' not yet dealt.';
+  }
+
+  // A filter changed: kept, applied at once to what the file has not dealt yet.
+  function changed() {
+    store(STORE_FILTER, filter);
+    renderFiles();
+    renderFilter();
+    renderMatch();
+    if (!position && loaded >= 0) show();
+  }
+
+  function wirePanel() {
+    page.file.addEventListener('change', function () { load(cards.choose(Number(page.file.value))); });
+    page.single.addEventListener('change', function () { filter.single = page.single.checked; changed(); });
+    page.combine.addEventListener('change', function () { filter.combine = page.combine.value; changed(); });
+    page.labels.addEventListener('change', function (event) {
+      var name = event.target.dataset.label;
+      if (!name) return;
+      if (event.target.value) filter.labels[name] = event.target.value; else delete filter.labels[name];
+      changed();
+    });
+    page.profiles.addEventListener('change', function () {
+      filter.profiles = Array.prototype.filter.call(page.profiles.options, function (o) { return o.selected; })
+        .map(function (o) { return o.value; });
+      changed();
+    });
+    page.clear.addEventListener('click', function () { filter = readFilter(null); changed(); });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     var id = document.getElementById.bind(document);
     page = {
       board: id('fm-board'), level: id('fm-level'), turn: id('fm-turn'), score: id('fm-score'),
-      verdict: id('fm-verdict'), next: id('fm-next'), give: id('fm-give'), here: id('bar-here')
+      verdict: id('fm-verdict'), next: id('fm-next'), give: id('fm-give'), here: id('bar-here'),
+      file: id('fm-file'), single: id('fm-single'), combine: id('fm-combine'), labels: id('fm-labels'),
+      profiles: id('fm-profiles'), clear: id('fm-clear'), match: id('fm-match')
     };
     page.board.addEventListener('click', onBoardClick);
     page.next.addEventListener('click', function () { if (!page.next.disabled) show(); });
     page.give.addEventListener('click', function () { if (!done && position) answered(null, true); });
     document.addEventListener('keydown', function (event) {
       // Enter on the focused button already clicks it; only the page itself needs handling.
-      if (event.key === 'Enter' && done && event.target.tagName !== 'BUTTON') show();
+      if (event.key === 'Enter' && done && event.target.tagName !== 'BUTTON' && event.target.tagName !== 'SELECT') show();
       if (event.key === 'Escape' && position) { closePromotion(); origin = null; paint(); }
     });
 
     if (!Chess) { fail(new Error('chess.js did not load')); return; }
     score = streak(Number(stored(STORE_BEST, 0)) || 0);
-    fetchJson('index.json').then(function (index) {
-      if (!index.files) throw new Error('index.json lists no position file');
+    filter = readFilter(stored(STORE_FILTER, null));
+    fetchJson('index.json').then(function (data) {
+      if (!data.files || !Array.isArray(data.f)) throw new Error('index.json describes no position file');
+      index = data;
       var seen = stored(STORE_SEEN, []);
       cards = deck(index.files, Array.isArray(seen) ? seen : []);
-      show();
+      wirePanel();
+      renderFilter();
+      load(cards.pick());
     }).catch(fail);
   });
 }(this));

@@ -171,6 +171,13 @@ footer {
 .fm-verdict.wrong { border-color: var(--bad); }
 .fm-verdict .good { color: var(--good); }
 .fm-verdict .bad { color: var(--bad); }
+/* Each mate of the position, once answered: its labels and its escape profile. */
+.fm-mates { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); font-size: 13px; }
+.fm-mates li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 2px 0; }
+.fm-mates li.played .san { color: var(--good); font-weight: 600; }
+.fm-labels { color: var(--ink); }
+.fm-escapes { margin-inline-start: auto; font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+              color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 
 .fm-actions { display: flex; gap: 8px; align-items: center; }
 .fm-actions button {
@@ -189,6 +196,25 @@ footer {
 .fm-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .fm-legend { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; margin: 0; }
 .fm-legend .san { font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace; }
+
+/* ---- the file chooser and the filter ---- */
+
+.fm-panel { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 12px;
+            display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.fm-panel h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.fm-panel h3 { margin: 6px 0 0; font-size: 14px; font-weight: 600; }
+.fm-panel select, .fm-panel button { font: inherit; color: var(--ink); background: var(--surface);
+            border: 1px solid var(--line-strong); border-radius: 4px; padding: 4px 6px; }
+.fm-panel #fm-file { flex: 1; min-width: 0; }
+.fm-panel #fm-profiles { width: 100%; font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace; }
+.fm-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fm-check { gap: 6px; }
+.fm-hint { margin: 0; font-size: 12.5px; color: var(--ink-soft); line-height: 1.45; }
+.fm-labels-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 12px; }
+.fm-label-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.fm-count { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.fm-panel-foot { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.fm-match { font-size: 13px; color: var(--ink-soft); }
 
 /* ---- the board ---- */
 

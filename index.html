@@ -40,7 +40,27 @@ the move that mates. Each one you find adds to your streak; a miss starts it aga
 <div class="fm-right">
 <div class="fm-verdict" id="fm-verdict">Pick up a piece and play the move you think forces mate.</div>
 <p class="fm-legend">There may be more than one mate: any of them is right, and the answer names them
-all.</p>
+all, each with what kind of mate it is and its escapes: <span class="san">5/3/2</span> is 5 squares around the
+king, 3 of them not blocked by its own pieces, and 2 enemy pieces guarding those.</p>
+<section class="fm-panel" aria-label="Choose the positions">
+<h2>Positions</h2>
+<label class="fm-row">File <select id="fm-file"></select></label>
+<p class="fm-hint">Each file holds 1,000 positions. The counts beside a file are what it holds for the
+filter below: exact for one choice, an upper bound (≤) for several.</p>
+<label class="fm-row fm-check"><input type="checkbox" id="fm-single"> Only positions with a single mate</label>
+<h3>Kinds of mate</h3>
+<p class="fm-hint">Show: a position with such a mate. Hide: no position where such a mate is possible.
+The count is the mates of that kind in this file.</p>
+<div id="fm-labels" class="fm-labels-list"></div>
+<label class="fm-row">Shown kinds <select id="fm-combine"><option value="any">a mate of any of them</option>
+<option value="all">a mate of all of them</option></select></label>
+<h3>Escapes</h3>
+<p class="fm-hint">The escape profiles of this file, with their counts. Choose any number (Ctrl or ⌘ to
+choose several); a position is shown when one of its mates has one of them, with the kinds above.</p>
+<select id="fm-profiles" multiple size="6"></select>
+<div class="fm-panel-foot"><button type="button" id="fm-clear">Clear the filter</button>
+<span id="fm-match" class="fm-match"></span></div>
+</section>
 </div>
 </div></main>
 
