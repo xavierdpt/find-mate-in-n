@@ -601,7 +601,6 @@
     fileRows(index).forEach(function (row) {
       Object.keys(row.kinds).forEach(function (n) { labels[n] = (labels[n] || 0) + (filter.single ? row.kinds[n].single : row.kinds[n].all); });
     });
-    var profiles = profileTotals(index, filter.single);
     var counts = function (inFile, inAll) {
       return here ? inFile + ' here · ' + inAll + ' in all' : inAll + ' in all';
     };
@@ -618,13 +617,14 @@
           return '<option value="' + v + '"' + (v === state ? ' selected' : '') + '>' + (v || '—') + '</option>';
         }).join('') + '</select></label>';
     }).join('');
-    // The profiles of all files, and any chosen that none has, in the order of their numbers.
-    var keys = Object.keys(profiles || {});
+    // The profiles of the file loaded, with their mates in it, in the order of their numbers; one chosen
+    // that the file lacks stays, so that it can be unchosen.
+    var keys = Object.keys(hereProfiles).filter(function (p) { return hereProfiles[p] > 0; });
     filter.profiles.forEach(function (p) { if (keys.indexOf(p) < 0) keys.push(p); });
     keys.sort(compareProfiles);
     page.profiles.innerHTML = keys.map(function (p) {
       return '<option value="' + p + '"' + (filter.profiles.indexOf(p) >= 0 ? ' selected' : '') + '>' + p + ' — ' +
-        counts(hereProfiles[p] || 0, profiles[p] || 0) + '</option>';
+        (hereProfiles[p] || 0) + '</option>';
     }).join('');
   }
 
