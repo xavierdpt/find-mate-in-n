@@ -67,8 +67,8 @@
   // `count` files, `seen` the ones already loaded (kept between visits). `pick` chooses the next
   // file among those not yet loaded, never the one being dealt, and starts again from all of them
   // once every file has been loaded; `choose` notes a file the player picked. `fill` takes a file's
-  // positions, shuffled, and `deal` hands out the next one that passes `test` (all of them without
-  // one), leaving the others in place for a filter changed later.
+  // positions, shuffled once, and `deal` hands out the next one that passes `test` (all of them without
+  // one), leaving the others in place; `restart` goes back to the start of that order.
   function deck(count, seen, random) {
     random = random || Math.random;
     var loaded = (seen || []).filter(function (k) { return k >= 0 && k < count; });
@@ -99,17 +99,18 @@
       },
       fill: function (index, positions) {
         this.current = index;
-        this.queue = shuffle(positions.slice(), random);
+        this.order = shuffle(positions.slice(), random);
+        this.queue = this.order.slice();
       },
+      // Back to the start of the file, in the order it was dealt in: what was dealt comes again.
+      restart: function () { this.queue = (this.order || []).slice(); },
       deal: function (test) {
         for (var i = 0; i < this.queue.length; i++) {
           if (!test || test(this.queue[i])) return this.queue.splice(i, 1)[0];
         }
         return null;
       },
-      remaining: function (test) { return test ? this.queue.filter(test).length : this.queue.length; },
-      // A position dealt but not played goes back, at the end, to be dealt again later.
-      putBack: function (p) { this.queue.push(p); }
+      remaining: function (test) { return test ? this.queue.filter(test).length : this.queue.length; }
     };
   }
 
@@ -620,15 +621,14 @@
       ' left for this filter, of ' + all + ' not yet dealt.';
   }
 
-  // A filter changed: kept, and applied at once, with a new position under it. The position on the
-  // board goes back to the deck if it was not answered yet, to come again later; at the end of the
-  // file, the new filter may find more.
+  // A filter changed: kept, and applied from the start of the file, positions already dealt included,
+  // with the first one that passes on the board at once.
   function changed() {
     store(STORE_FILTER, filter);
     renderFiles();
     renderFilter();
     if (loaded < 0) return;
-    if (position && !done) cards.putBack(position);
+    cards.restart();
     position = null;
     show();
   }
